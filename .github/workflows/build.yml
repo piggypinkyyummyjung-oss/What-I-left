@@ -14,1446 +14,572 @@ jobs:
           gradle-version: "8.9"
       - name: Write source files
         run: |
-          mkdir -p proj && cd proj
-          mkdir -p app/src/main/java/com/example/jars app/src/main/res/layout app/src/main/res/drawable app/src/main/res/xml app/src/main/assets
-          cat > settings.gradle.kts <<'JARS_EOF_7Q'
-          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories { google(); mavenCentral() }
-          }
-          rootProject.name = "Jars"
-          include(":app")
-          JARS_EOF_7Q
-          cat > build.gradle.kts <<'JARS_EOF_7Q'
-          plugins {
-              id("com.android.application") version "8.5.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
-          }
-          JARS_EOF_7Q
-          cat > gradle.properties <<'JARS_EOF_7Q'
-          org.gradle.jvmargs=-Xmx2g
-          JARS_EOF_7Q
-          cat > app/build.gradle.kts <<'JARS_EOF_7Q'
-          plugins {
-              id("com.android.application")
-              id("org.jetbrains.kotlin.android")
-          }
-          android {
-              namespace = "com.example.jars"
-              compileSdk = 34
-              defaultConfig {
-                  applicationId = "com.example.jars"
-                  minSdk = 26
-                  targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
-              }
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
-              }
-              kotlinOptions { jvmTarget = "17" }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/AndroidManifest.xml <<'JARS_EOF_7Q'
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-              <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-              <application
-                  android:label="กระปุก"
-                  android:icon="@android:drawable/sym_def_app_icon"
-                  android:allowBackup="true">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true"
-                      android:windowSoftInputMode="adjustResize">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-                  <activity
-                      android:name=".QuickActivity"
-                      android:exported="false"
-                      android:excludeFromRecents="true"
-                      android:taskAffinity=""
-                      android:theme="@android:style/Theme.DeviceDefault.Dialog" />
-                  <receiver android:name=".JarWidget" android:exported="false">
-                      <intent-filter>
-                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                      </intent-filter>
-                      <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
-                  </receiver>
-                  <receiver android:name=".ReminderReceiver" android:exported="false" />
-                  <receiver android:name=".BootReceiver" android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.BOOT_COMPLETED" />
-                      </intent-filter>
-                  </receiver>
-              </application>
-          </manifest>
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/MainActivity.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import android.Manifest
-          import android.app.Activity
-          import android.content.Context
-          import android.content.Intent
-          import android.net.Uri
-          import android.os.Build
-          import android.os.Bundle
-          import android.webkit.JavascriptInterface
-          import android.webkit.ValueCallback
-          import android.webkit.WebChromeClient
-          import android.webkit.WebView
-          import org.json.JSONObject
-
-          class MainActivity : Activity() {
-              private lateinit var web: WebView
-              private var chooser: ValueCallback<Array<Uri>>? = null
-              private var pendingText = ""
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  web = WebView(this)
-                  web.settings.javaScriptEnabled = true
-                  web.settings.domStorageEnabled = true
-                  web.webChromeClient = object : WebChromeClient() {
-                      override fun onShowFileChooser(
-                          view: WebView?,
-                          callback: ValueCallback<Array<Uri>>?,
-                          params: FileChooserParams?
-                      ): Boolean {
-                          chooser?.onReceiveValue(null)
-                          chooser = callback
-                          val pdf = params?.acceptTypes?.any { it.contains("pdf") } == true
-                          val i = Intent(Intent.ACTION_GET_CONTENT)
-                          i.addCategory(Intent.CATEGORY_OPENABLE)
-                          i.type = if (pdf) "application/pdf" else "*/*"
-                          return try {
-                              startActivityForResult(Intent.createChooser(i, "เลือกไฟล์"), 1)
-                              true
-                          } catch (e: Exception) {
-                              chooser = null
-                              false
-                          }
-                      }
-                  }
-                  web.addJavascriptInterface(Bridge(this, web), "Android")
-                  web.loadUrl("file:///android_asset/index.html")
-                  setContentView(web)
-                  if (Build.VERSION.SDK_INT >= 33) {
-                      requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
-                  }
-                  Reminder.schedule(this)
-              }
-
-              fun startSave(name: String, mime: String, text: String) {
-                  pendingText = text
-                  val i = Intent(Intent.ACTION_CREATE_DOCUMENT)
-                  i.addCategory(Intent.CATEGORY_OPENABLE)
-                  i.type = mime
-                  i.putExtra(Intent.EXTRA_TITLE, name)
-                  try {
-                      startActivityForResult(i, 3)
-                  } catch (e: Exception) {
-                      web.evaluateJavascript("toast('บันทึกไฟล์ไม่ได้')", null)
-                  }
-              }
-
-              @Deprecated("Deprecated in Java")
-              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-                  super.onActivityResult(requestCode, resultCode, data)
-                  val uri = data?.data
-                  if (requestCode == 1) {
-                      chooser?.onReceiveValue(if (resultCode == RESULT_OK && uri != null) arrayOf(uri) else null)
-                      chooser = null
-                  } else if (requestCode == 3 && resultCode == RESULT_OK && uri != null) {
-                      val ok = try {
-                          contentResolver.openOutputStream(uri)?.use { it.write(pendingText.toByteArray(Charsets.UTF_8)) }
-                          true
-                      } catch (e: Exception) {
-                          false
-                      }
-                      web.evaluateJavascript(if (ok) "toast('บันทึกไฟล์แล้ว')" else "toast('บันทึกไฟล์ไม่สำเร็จ')", null)
-                      pendingText = ""
-                  }
-              }
-          }
-
-          class Bridge(private val c: Context, private val web: WebView) {
-              @JavascriptInterface
-              fun load(): String = c.getSharedPreferences("jars", 0).getString("data", "") ?: ""
-
-              @JavascriptInterface
-              fun save(json: String) {
-                  c.getSharedPreferences("jars", 0).edit().putString("data", json).apply()
-                  JarWidget.refresh(c)
-              }
-
-              @JavascriptInterface
-              fun price(sym: String) {
-                  Thread {
-                      val p = try { Prices.thb(sym) } catch (e: Exception) { null }
-                      web.post {
-                          val q = JSONObject.quote(sym)
-                          if (p != null) web.evaluateJavascript("window.__price($q,$p)", null)
-                          else web.evaluateJavascript("window.__perr($q)", null)
-                      }
-                  }.start()
-              }
-
-              @JavascriptInterface
-              fun saveFile(name: String, mime: String, text: String) {
-                  val a = c as MainActivity
-                  a.runOnUiThread { a.startSave(name, mime, text) }
-              }
-
-              @JavascriptInterface
-              fun setAlerts(json: String) {
-                  c.getSharedPreferences("jars", 0).edit().putString("alerts", json).apply()
-              }
-
-              @JavascriptInterface
-              fun pushNote(title: String, msg: String) {
-                  Reminder.show(c, 200, title, msg)
-              }
-
-              @JavascriptInterface
-              fun setQuick(json: String) {
-                  c.getSharedPreferences("jars", 0).edit().putString("quick", json).apply()
-              }
-
-              @JavascriptInterface
-              fun bio() {
-                  if (Build.VERSION.SDK_INT < 28) {
-                      web.post { web.evaluateJavascript("window.__bio&&window.__bio(false)", null) }
-                      return
-                  }
-                  val a = c as Activity
-                  a.runOnUiThread { Biometric.ask(a, web) }
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/JarWidget.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import android.app.PendingIntent
-          import android.appwidget.AppWidgetManager
-          import android.appwidget.AppWidgetProvider
-          import android.content.ComponentName
-          import android.content.Context
-          import android.content.Intent
-          import android.widget.RemoteViews
-          import org.json.JSONObject
-          import java.text.NumberFormat
-          import java.time.LocalDate
-          import java.time.temporal.ChronoUnit
-
-          class JarWidget : AppWidgetProvider() {
-              override fun onUpdate(ctx: Context, m: AppWidgetManager, ids: IntArray) {
-                  for (id in ids) m.updateAppWidget(id, build(ctx))
-              }
-
-              companion object {
-                  fun refresh(ctx: Context) {
-                      val m = AppWidgetManager.getInstance(ctx)
-                      val ids = m.getAppWidgetIds(ComponentName(ctx, JarWidget::class.java))
-                      for (id in ids) m.updateAppWidget(id, build(ctx))
-                  }
-
-                  private fun build(ctx: Context): RemoteViews {
-                      val v = RemoteViews(ctx.packageName, R.layout.widget)
-                      val nf = NumberFormat.getIntegerInstance()
-                      val sb = StringBuilder()
-                      try {
-                          val raw = ctx.getSharedPreferences("jars", 0).getString("data", "") ?: ""
-                          val jars = JSONObject(raw).getJSONArray("jars")
-                          val today = LocalDate.now()
-                          val ts = today.toString()
-                          for (i in 0 until minOf(jars.length(), 5)) {
-                              val j = jars.getJSONObject(i)
-                              val type = j.optString("type", "d")
-                              val tx = j.getJSONArray("tx")
-                              var bal = 0.0
-                              var net = 0.0
-                              var units = 0.0
-                              for (k in 0 until tx.length()) {
-                                  val t = tx.getJSONObject(k)
-                                  val a = t.getDouble("a")
-                                  bal += a
-                                  units += t.optDouble("u", 0.0)
-                                  val nt = t.optString("n", "")
-                                  val sys = t.optBoolean("g", false) || nt == "แบ่งเงินเดือน" || nt == "ส่วนที่เหลือจากเงินเดือน" ||
-                                      nt == "ปรับส่วนที่เหลือ" || nt.startsWith("โอนไป")
-                                  if (t.getString("d") == ts && !sys) net += a
-                              }
-                              val price = j.optDouble("price", 0.0)
-                              if (type == "k" && price > 0 && units > 0) bal = units * price
-                              if (sb.isNotEmpty()) sb.append("\n")
-                              sb.append(j.getString("name")).append("  ").append(nf.format(Math.round(bal))).append(" ฿")
-                              if (type == "d") {
-                                  var end = LocalDate.parse(j.optString("end", ts))
-                                  while (end.isBefore(today)) end = end.plusMonths(1)
-                                  val days = maxOf(1L, ChronoUnit.DAYS.between(today, end) + 1)
-                                  val left = (bal - net) / days + net
-                                  sb.append("  ·  วันนี้เหลือ ").append(nf.format(Math.round(left))).append(" · วันละ ").append(nf.format(Math.round(bal / days)))
-                              }
-                          }
-                      } catch (e: Exception) {
-                      }
-                      v.setTextViewText(R.id.body, if (sb.isEmpty()) "ยังไม่มีกระปุก แตะเพื่อเปิดแอป" else sb.toString())
-                      val pi = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-                      v.setOnClickPendingIntent(R.id.root, pi)
-                      val qi = Intent(ctx, QuickActivity::class.java)
-                      qi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                      v.setOnClickPendingIntent(R.id.quick, PendingIntent.getActivity(ctx, 2, qi, PendingIntent.FLAG_IMMUTABLE))
-                      return v
-                  }
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/QuickActivity.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import android.app.Activity
-          import android.os.Bundle
-          import android.text.InputType
-          import android.widget.ArrayAdapter
-          import android.widget.Button
-          import android.widget.EditText
-          import android.widget.LinearLayout
-          import android.widget.Spinner
-          import android.widget.TextView
-          import android.widget.Toast
-          import org.json.JSONArray
-          import org.json.JSONObject
-          import java.text.NumberFormat
-          import java.time.LocalDate
-
-          class QuickActivity : Activity() {
-              private lateinit var spin: Spinner
-              private lateinit var amt: EditText
-              private lateinit var total: TextView
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  title = "บันทึกรายการ"
-                  val pad = (16 * resources.displayMetrics.density).toInt()
-                  val root = LinearLayout(this)
-                  root.orientation = LinearLayout.VERTICAL
-                  root.setPadding(pad, pad, pad, pad)
-
-                  spin = Spinner(this)
-                  spin.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, categories())
-                  root.addView(spin)
-
-                  amt = EditText(this)
-                  amt.hint = "จำนวนเงิน (บาท)"
-                  amt.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                  root.addView(amt)
-
-                  val row = LinearLayout(this)
-                  row.orientation = LinearLayout.HORIZONTAL
-                  val plus = Button(this)
-                  plus.text = "＋ เติมเงิน"
-                  plus.setOnClickListener { save(1) }
-                  val minus = Button(this)
-                  minus.text = "－ หักเงิน"
-                  minus.setOnClickListener { save(-1) }
-                  row.addView(plus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                  row.addView(minus, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                  root.addView(row)
-
-                  total = TextView(this)
-                  total.textSize = 18f
-                  root.addView(total)
-                  refreshTotal()
-                  setContentView(root)
-              }
-
-              private fun quick(): JSONObject {
-                  val raw = getSharedPreferences("jars", 0).getString("quick", "") ?: ""
-                  return try { JSONObject(raw) } catch (e: Exception) { JSONObject() }
-              }
-
-              private fun categories(): List<String> {
-                  val out = ArrayList<String>()
-                  out.add("ไม่ระบุหมวด")
-                  val a = quick().optJSONArray("cats")
-                  if (a != null && a.length() > 0) {
-                      for (i in 0 until a.length()) out.add(a.optString(i))
-                  } else {
-                      out.add("ค่าอาหาร")
-                      out.add("ค่าเดินทาง")
-                      out.add("ค่าช้อปปิ้ง")
-                  }
-                  return out
-              }
-
-              private fun refreshTotal() {
-                  val s = quick().optDouble("spent", 0.0)
-                  total.text = "ใช้รวมทั้งหมด (รอบนี้): " + NumberFormat.getIntegerInstance().format(Math.round(s)) + " ฿"
-              }
-
-              private fun msg(t: String) {
-                  Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
-              }
-
-              private fun save(sign: Int) {
-                  val t = amt.text.toString().trim().replace(",", "")
-                  if (t.isEmpty()) { msg("กรุณากรอกข้อมูลให้ครบถ้วนก่อน"); return }
-                  val v = t.toDoubleOrNull()
-                  if (v == null || v.isNaN() || v.isInfinite()) { msg("โปรดระบุเป็นตัวเลขเท่านั้น"); return }
-                  if (v <= 0) { msg("จำนวนเงินต้องมากกว่า 0"); return }
-                  val sp = getSharedPreferences("jars", 0)
-                  val raw = sp.getString("data", "") ?: ""
-                  try {
-                      val o = if (raw.isEmpty()) JSONObject() else JSONObject(raw)
-                      val jars = o.optJSONArray("jars")
-                      var jar: JSONObject? = null
-                      if (jars != null) {
-                          for (i in 0 until jars.length()) {
-                              val j = jars.getJSONObject(i)
-                              if (j.optString("type") == "d") { jar = j; break }
-                          }
-                      }
-                      val jj = jar
-                      if (jj == null) { msg("ยังไม่มีกระปุกรายรับ-รายจ่าย กรุณาเปิดแอปก่อน"); return }
-                      var tx = jj.optJSONArray("tx")
-                      if (tx == null) { tx = JSONArray(); jj.put("tx", tx) }
-                      val e = JSONObject()
-                      e.put("id", System.currentTimeMillis() + Math.random())
-                      e.put("a", sign * v)
-                      e.put("d", LocalDate.now().toString())
-                      if (sign < 0 && spin.selectedItemPosition > 0) e.put("c", spin.selectedItem.toString())
-                      tx.put(e)
-                      sp.edit().putString("data", o.toString()).apply()
-                      if (sign < 0) {
-                          val q = quick()
-                          q.put("spent", q.optDouble("spent", 0.0) + v)
-                          sp.edit().putString("quick", q.toString()).apply()
-                      }
-                      JarWidget.refresh(this)
-                      amt.setText("")
-                      refreshTotal()
-                      msg("บันทึกแล้ว")
-                  } catch (e: Exception) {
-                      msg("บันทึกไม่สำเร็จ กรุณาเปิดแอปแล้วลองใหม่")
-                  }
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/Prices.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import org.json.JSONObject
-          import java.net.HttpURLConnection
-          import java.net.URL
-          import java.net.URLEncoder
-
-          object Prices {
-              private fun get(url: String): String {
-                  val con = URL(url).openConnection() as HttpURLConnection
-                  con.setRequestProperty("User-Agent", "Mozilla/5.0")
-                  con.connectTimeout = 10000
-                  con.readTimeout = 10000
-                  return con.inputStream.bufferedReader().use { it.readText() }
-              }
-
-              private fun quote(sym: String): Pair<Double, String> {
-                  val url = "https://query1.finance.yahoo.com/v8/finance/chart/" +
-                      URLEncoder.encode(sym, "UTF-8") + "?interval=1d&range=1d"
-                  val meta = JSONObject(get(url)).getJSONObject("chart")
-                      .getJSONArray("result").getJSONObject(0).getJSONObject("meta")
-                  return Pair(meta.getDouble("regularMarketPrice"), meta.optString("currency", "THB"))
-              }
-
-              /** ราคาเป็นบาท: ถ้าหุ้นเป็นสกุลอื่นจะคูณอัตราแลกเปลี่ยนให้ */
-              fun thb(sym: String): Double {
-                  val (p, cur) = quote(sym)
-                  if (cur == "THB") return p
-                  return p * quote(cur + "THB=X").first
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/Reminder.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import android.app.AlarmManager
-          import android.app.Notification
-          import android.app.NotificationChannel
-          import android.app.NotificationManager
-          import android.app.PendingIntent
-          import android.content.BroadcastReceiver
-          import android.content.Context
-          import android.content.Intent
-          import org.json.JSONArray
-          import java.time.LocalDate
-          import java.util.Calendar
-
-          object Reminder {
-              private const val CH = "jars"
-
-              fun show(ctx: Context, id: Int, title: String, msg: String) {
-                  val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                  nm.createNotificationChannel(NotificationChannel(CH, "การแจ้งเตือนกระปุก", NotificationManager.IMPORTANCE_DEFAULT))
-                  val pi = PendingIntent.getActivity(ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-                  val n = Notification.Builder(ctx, CH)
-                      .setSmallIcon(android.R.drawable.ic_dialog_info)
-                      .setContentTitle(title)
-                      .setContentText(msg)
-                      .setContentIntent(pi)
-                      .setAutoCancel(true)
-                      .build()
-                  try {
-                      nm.notify(id, n)
-                  } catch (e: SecurityException) {
-                  }
-              }
-
-              fun schedule(ctx: Context) {
-                  val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-                  val pi = PendingIntent.getBroadcast(
-                      ctx, 1, Intent(ctx, ReminderReceiver::class.java),
-                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                  )
-                  val cal = Calendar.getInstance()
-                  cal.set(Calendar.HOUR_OF_DAY, 9)
-                  cal.set(Calendar.MINUTE, 0)
-                  cal.set(Calendar.SECOND, 0)
-                  if (cal.timeInMillis < System.currentTimeMillis()) cal.add(Calendar.DAY_OF_YEAR, 1)
-                  am.setInexactRepeating(AlarmManager.RTC_WAKEUP, cal.timeInMillis, AlarmManager.INTERVAL_DAY, pi)
-              }
-          }
-
-          class ReminderReceiver : BroadcastReceiver() {
-              override fun onReceive(ctx: Context, intent: Intent?) {
-                  try {
-                      val raw = ctx.getSharedPreferences("jars", 0).getString("alerts", "") ?: ""
-                      if (raw.isEmpty()) return
-                      val arr = JSONArray(raw)
-                      val today = LocalDate.now().toString()
-                      var n = 0
-                      for (i in 0 until arr.length()) {
-                          val o = arr.getJSONObject(i)
-                          if (o.optString("d") == today) {
-                              Reminder.show(ctx, 100 + n, o.optString("t"), o.optString("m"))
-                              n++
-                          }
-                      }
-                  } catch (e: Exception) {
-                  }
-              }
-          }
-
-          class BootReceiver : BroadcastReceiver() {
-              override fun onReceive(ctx: Context, intent: Intent?) {
-                  Reminder.schedule(ctx)
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/java/com/example/jars/Biometric.kt <<'JARS_EOF_7Q'
-          package com.example.jars
-
-          import android.app.Activity
-          import android.content.DialogInterface
-          import android.hardware.biometrics.BiometricPrompt
-          import android.os.CancellationSignal
-          import android.webkit.WebView
-
-          object Biometric {
-              @android.annotation.TargetApi(28)
-              fun ask(a: Activity, web: WebView) {
-                  val cb = object : BiometricPrompt.AuthenticationCallback() {
-                      override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
-                          web.evaluateJavascript("window.__bio&&window.__bio(true)", null)
-                      }
-
-                      override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
-                          web.evaluateJavascript("window.__bio&&window.__bio(false)", null)
-                      }
-                  }
-                  val prompt = BiometricPrompt.Builder(a)
-                      .setTitle("ปลดล็อกแอป")
-                      .setNegativeButton("ใช้ PIN", a.mainExecutor, DialogInterface.OnClickListener { _, _ -> })
-                      .build()
-                  prompt.authenticate(CancellationSignal(), a.mainExecutor, cb)
-              }
-          }
-          JARS_EOF_7Q
-          cat > app/src/main/res/layout/widget.xml <<'JARS_EOF_7Q'
-          <?xml version="1.0" encoding="utf-8"?>
-          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:id="@+id/root"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:orientation="vertical"
-              android:padding="12dp"
-              android:background="@drawable/bg">
-              <LinearLayout
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:orientation="horizontal"
-                  android:gravity="center_vertical">
-                  <TextView
-                      android:layout_width="0dp"
-                      android:layout_height="wrap_content"
-                      android:layout_weight="1"
-                      android:text="กระปุกของฉัน"
-                      android:textColor="#5E7378"
-                      android:textSize="12sp" />
-                  <TextView
-                      android:id="@+id/quick"
-                      android:layout_width="wrap_content"
-                      android:layout_height="wrap_content"
-                      android:paddingLeft="12dp"
-                      android:paddingRight="12dp"
-                      android:paddingTop="4dp"
-                      android:paddingBottom="4dp"
-                      android:text="＋ บันทึก"
-                      android:textColor="#FFFFFF"
-                      android:textSize="13sp"
-                      android:textStyle="bold"
-                      android:background="@drawable/pill" />
-              </LinearLayout>
-              <TextView
-                  android:id="@+id/body"
-                  android:layout_width="match_parent"
-                  android:layout_height="wrap_content"
-                  android:textColor="#14262B"
-                  android:textSize="15sp"
-                  android:textStyle="bold" />
-          </LinearLayout>
-          JARS_EOF_7Q
-          cat > app/src/main/res/drawable/bg.xml <<'JARS_EOF_7Q'
-          <?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-              <solid android:color="#EDF2F3" />
-              <corners android:radius="18dp" />
-          </shape>
-          JARS_EOF_7Q
-          cat > app/src/main/res/drawable/pill.xml <<'JARS_EOF_7Q'
-          <?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-              <solid android:color="#F0578A" />
-              <corners android:radius="14dp" />
-          </shape>
-          JARS_EOF_7Q
-          cat > app/src/main/res/xml/widget_info.xml <<'JARS_EOF_7Q'
-          <?xml version="1.0" encoding="utf-8"?>
-          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-              android:minWidth="250dp"
-              android:minHeight="110dp"
-              android:updatePeriodMillis="1800000"
-              android:initialLayout="@layout/widget"
-              android:resizeMode="horizontal|vertical"
-              android:widgetCategory="home_screen" />
-          JARS_EOF_7Q
-          cat > app/src/main/assets/index.html <<'JARS_EOF_7Q'
-          <!DOCTYPE html>
-          <html lang="th">
-          <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-          <title>กระปุกรายวัน</title>
-          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;800&family=Mali:wght@500;700&display=swap">
-          <style>
-          :root{--bg:#FFF3F7;--card:#FFFFFF;--ink:#4B3A4A;--mute:#9A8496;--line:#F4DCE6;--ok:#22A67F;--bad:#EC5479;--pv:#7F6BE8;--acc:#FF7FAF;
-          box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-          @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1D1520;--card:#2A1F2E;--ink:#FBEFF5;--mute:#BCA6B7;--line:#43324A;--ok:#5FD9B3;--bad:#FF8AA6;--pv:#B0A2FF}}
-          :root[data-theme="dark"]{--bg:#1D1520;--card:#2A1F2E;--ink:#FBEFF5;--mute:#BCA6B7;--line:#43324A;--ok:#5FD9B3;--bad:#FF8AA6;--pv:#B0A2FF}
-          *{box-sizing:border-box}
-          html{scroll-padding-top:env(safe-area-inset-top,0px)}
-          body{margin:0;background:var(--bg);background-image:radial-gradient(circle at 8% 0%,rgba(255,150,195,.28),transparent 38%),radial-gradient(circle at 100% 18%,rgba(150,130,245,.2),transparent 34%);background-repeat:no-repeat;color:var(--ink);font-family:"Noto Sans Thai",system-ui,sans-serif;line-height:1.6}
-          main{max-width:480px;margin:0 auto;padding:18px 16px 40px}
-          h1{font:700 26px "Mali","Noto Sans Thai",system-ui,sans-serif;margin:6px 0 14px}
-          .t-d{--acc:#38C79C}.t-p,.t-f{--acc:#8B78EE}.t-o{--acc:#7ACB5B}.t-s{--acc:#FF9168}.t-k{--acc:#4FAEF2}.t-c{--acc:#FF6FA5}.t-i{--acc:#EFB02E}
-          .card{background:var(--card);border:1.5px solid var(--line);border-radius:26px;padding:18px;margin-bottom:14px;box-shadow:0 8px 22px rgba(255,127,175,.12)}
-          @supports (background:color-mix(in srgb,red,blue)){
-          .card{background:linear-gradient(160deg,color-mix(in srgb,var(--acc) 16%,var(--card)),var(--card) 62%);border-color:color-mix(in srgb,var(--acc) 30%,var(--line));box-shadow:0 8px 22px color-mix(in srgb,var(--acc) 16%,transparent)}
-          .tag{background:color-mix(in srgb,var(--acc) 22%,var(--card));border-color:transparent}
-          .b.m{background:color-mix(in srgb,var(--bad) 13%,var(--card))}
-          .b.p{background:color-mix(in srgb,var(--ok) 13%,var(--card))}
-          .b.v{background:color-mix(in srgb,var(--pv) 13%,var(--card))}
-          .tabs button.on{background:color-mix(in srgb,var(--pv) 14%,var(--card))}
-          }
-          .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
-          .name{font:700 18px "Mali","Noto Sans Thai",system-ui,sans-serif}
-          .tag{font-size:12px;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:1px 10px;white-space:nowrap}
-          .big{font:700 36px/1.2 "Mali","Noto Sans Thai",system-ui,sans-serif;margin:4px 0 6px}
-          .neg{color:var(--bad)}.pos{color:var(--ok)}
-          .sub{display:flex;justify-content:space-between;gap:8px;color:var(--mute);font-size:14px}
-          .sub b{color:var(--ink);font-weight:600;text-align:right}
-          .bar{height:12px;border-radius:999px;background:var(--line);overflow:hidden;margin:10px 0}
-          .bar i{display:block;height:100%;border-radius:999px;background:var(--acc)}
-          .q{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:12px}
-          .q.one{grid-template-columns:1fr auto}
-          input,select{width:100%;padding:11px 14px;border-radius:16px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);font:400 16px inherit;font-family:inherit}
-          input:focus,select:focus,button:focus-visible,summary:focus-visible{outline:2px solid var(--pv);outline-offset:2px}
-          .b{border:1.5px solid;border-radius:999px;padding:0 16px;font:700 16px inherit;font-family:inherit;cursor:pointer;background:transparent;min-height:44px;transition:transform .1s}
-          .b:active{transform:scale(.95)}
-          .b.m{color:var(--bad);border-color:var(--bad)}
-          .b.p{color:var(--ok);border-color:var(--ok)}
-          .b.v{color:var(--pv);border-color:var(--pv)}
-          details{margin-top:12px;font-size:14px;color:var(--mute)}
-          summary{cursor:pointer;padding:4px 0}
-          ul{list-style:none;padding:0;margin:4px 0}
-          li{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1.5px dashed var(--line);color:var(--ink)}
-          li .n{flex:1;overflow-wrap:anywhere}
-          .lnk,li button{border:0;background:transparent;color:var(--mute);cursor:pointer;font:inherit;font-family:inherit;padding:2px 8px}
-          .set{display:grid;gap:4px;margin-top:8px}
-          .set label{font-size:13px}
-          .tabs{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-          .tabs button{padding:10px 6px;border-radius:18px;border:1.5px solid var(--line);background:var(--card);color:var(--mute);font:600 15px inherit;font-family:inherit;cursor:pointer}
-          .tabs button.on{border-color:var(--pv);color:var(--pv)}
-          .save{padding:13px;border:0;border-radius:999px;background:linear-gradient(135deg,#FF8FB8,#9B8CF5);color:#fff;font:700 17px inherit;font-family:inherit;cursor:pointer;box-shadow:0 6px 16px rgba(155,140,245,.35)}
-          .save:active{transform:scale(.97)}
-          .grid{display:grid;gap:10px}
-          .row2{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-          .chk{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--mute)}
-          .chk input{width:auto}
-          .empty{color:var(--mute);margin:8px 0 12px;text-align:center;font-size:16px}
-          .chip{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:20px;padding:8px 14px;margin:8px 0;font-weight:600}
-          .chip b{font:700 26px "Mali","Noto Sans Thai",system-ui,sans-serif}
-          @supports (background:color-mix(in srgb,red,blue)){.chip{background:color-mix(in srgb,var(--acc) 18%,var(--card));border-color:transparent}}
-          .imp textarea{width:100%;min-height:90px;border-radius:14px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);padding:10px;font:inherit;margin:6px 0}
-          .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-          .st{border:1.5px solid var(--line);border-radius:18px;padding:10px 12px}
-          .st small{display:block;color:var(--mute);font-size:13px}
-          .st b{font:700 20px "Mali","Noto Sans Thai",system-ui,sans-serif;display:block}
-          .st i{font-style:normal;color:var(--mute);font-size:12px}
-          .mt{display:grid;grid-template-columns:.9fr 1fr 1fr 1fr;gap:6px 8px;font-size:13px;margin:4px 0 8px;text-align:right}
-          .mt b{font-size:12px;color:var(--mute);font-weight:600}
-          .mt span:nth-child(4n+1),.mt b:first-child{text-align:left}
-          .card.compact{padding:6px 16px}
-          .cbtn{width:100%;display:flex;align-items:center;gap:10px;background:transparent;border:0;color:var(--ink);font:inherit;cursor:pointer;padding:6px 0;text-align:left;min-height:46px}
-          .cbtn .cn{flex:1;min-width:0;overflow-wrap:anywhere;font:700 17px "Mali","Noto Sans Thai",system-ui,sans-serif}
-          .cbtn .cv{font-weight:700}
-          .cbtn .cc{color:var(--mute);font-size:22px}
-          .t-g{--acc:#FFB347}
-          .icons{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}
-          .icons button{font-size:22px;border:1.5px solid var(--line);background:var(--card);border-radius:14px;min-height:44px;cursor:pointer}
-          .icons button.on{border-color:var(--pv)}
-          #addc>summary{font:700 17px "Mali","Noto Sans Thai",system-ui,sans-serif;color:var(--ink);cursor:pointer;padding:6px 0}
-          .err{border-color:var(--bad)!important}
-          #toast{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);z-index:50;background:var(--bad);color:#fff;border-radius:16px;padding:12px 14px;font-weight:600;text-align:center;box-shadow:0 8px 22px rgba(0,0,0,.25);display:none;max-width:456px;margin:0 auto}
-          #alerts{border:1.5px solid var(--bad);border-radius:18px;padding:8px 14px;margin-bottom:12px;background:var(--card)}
-          .alert{padding:3px 0;font-weight:600}
-          #cfg textarea{width:100%;min-height:80px;border-radius:14px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);padding:10px;font:inherit}
-          #cfg>details>summary{font:700 17px "Mali","Noto Sans Thai",system-ui,sans-serif;cursor:pointer;padding:4px 0}
-          #undo{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 12px);z-index:40;max-width:456px;margin:0 auto;background:var(--ink);color:var(--bg);border-radius:16px;padding:10px 14px;display:none;justify-content:space-between;align-items:center;font-weight:600}
-          #undo button{border:0;background:transparent;color:var(--bg);font:inherit;text-decoration:underline;cursor:pointer;min-height:36px}
-          #lock{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px}
-          #lock .lt{font:700 20px "Mali","Noto Sans Thai",system-ui,sans-serif}
-          #lock .ld{font-size:26px;letter-spacing:6px}
-          #lock .lm{color:var(--bad);min-height:24px;font-weight:600}
-          #lock .lp{display:grid;grid-template-columns:repeat(3,76px);gap:12px}
-          #lock .lp button{height:64px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);color:var(--ink);font:600 24px inherit;font-family:inherit;cursor:pointer}
-          .imp{border:1.5px dashed var(--pv);border-radius:18px;padding:12px;margin-top:10px;display:grid;gap:8px}
-          </style>
-          </head>
-          <body>
-          <main>
-            <h1>กระปุกของฉัน 🐷</h1>
-            <div id="alerts" style="display:none"></div>
-            <div id="jtop"></div>
-            <section class="card" id="sal"></section>
-            <div id="jars"></div>
-            <button class="b v" id="demob" type="button" hidden style="width:100%;margin-bottom:12px">✨ ลองดูข้อมูลตัวอย่าง</button>
-            <details class="card" id="addc">
-              <summary>➕ เพิ่มกระปุกใหม่</summary>
-              <div class="grid" style="margin-top:12px">
-                <input id="nn" placeholder="ชื่อกระปุก">
-                <input id="na" type="text" inputmode="decimal" placeholder="เงินตั้งต้น (ถ้ามี)">
-                <label style="font-size:13px;color:var(--mute)">เลือกไอคอน</label>
-                <div id="nic"></div>
-                <button class="save" id="addb" type="button">สร้างกระปุก</button>
-              </div>
-            </details>
-            <section class="card" id="sum"></section>
-            <section class="card" id="cfg"></section>
-          </main>
-          <script>
-          const KEY="jars-v2",EM={d:"🐷",f:"🏦",k:"📈",c:"🧸",o:"🍀",i:"🛡️",g:"💰"},TY={d:"รายรับ-รายจ่าย",f:"PVD + สหกรณ์",k:"DCA หุ้น",c:"กองทุนลูก",o:"เงินเหลือ",i:"ประกัน",g:"กระปุกทั่วไป"};
-          let S={salary:0,auto:false,last:"",jars:[]},NT="d",OPEN=0,LC="";
-          let LOADERR=false,LASTSAVED="";
-          try{const r=window.Android?Android.load():localStorage.getItem(KEY);if(r){LASTSAVED=r;try{S=Object.assign(S,JSON.parse(r))}catch(e){LOADERR=true;try{localStorage.setItem(KEY+"-bak",r)}catch(_){}}}}catch(e){LOADERR=true}
-          (function(){
-            const ps=S.jars.filter(j=>j.type==="p"),ss=S.jars.filter(j=>j.type==="s");
-            if(!ps.length&&!ss.length)return;
-            const base=ps[0]||ss[0],f={id:base.id,type:"f",name:"PVD + สหกรณ์",emp:0,er:0,prate:0,mon:0,srate:0,yrs:10,tx:[]};
-            for(const j of ps){f.emp=j.emp||0;f.er=j.er||0;f.prate=j.rate||0;f.yrs=j.yrs||f.yrs;j.tx.forEach(t=>f.tx.push(Object.assign({},t,{k:"p"})))}
-            for(const j of ss){f.mon=j.mon||0;f.srate=j.rate||0;j.tx.forEach(t=>f.tx.push(Object.assign({},t,{k:"s"})))}
-            const at=S.jars.indexOf(base);
-            S.jars=S.jars.filter(j=>j.type!=="p"&&j.type!=="s");S.jars.splice(Math.min(at,S.jars.length),0,f);
-          })();
-          const $=id=>document.getElementById(id);
-          let _st=null;
-          const flush=()=>{if(_st){clearTimeout(_st);_st=null}try{const j=JSON.stringify(S);LASTSAVED=j;if(window.Android)Android.save(j);else localStorage.setItem(KEY,j)}catch(e){toast(e&&e.name==="QuotaExceededError"?"พื้นที่จัดเก็บเต็ม กรุณาลบรายการเก่าบางส่วน":"บันทึกข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง")}};
-          const store=()=>{if(_st)clearTimeout(_st);_st=setTimeout(flush,300)};
-          addEventListener("pagehide",flush);document.addEventListener("visibilitychange",()=>{if(document.hidden)flush()});
-          const pad=n=>String(n).padStart(2,"0");
-          const ymd=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
-          const fmt=n=>{const r=Math.round(n);return Number.isFinite(r)?(r===0?0:r).toLocaleString("th-TH"):"0"};
-          const td=()=>ymd(new Date());
-          const eom=()=>cend();
-          const dd=(a,b)=>Math.round((new Date(b)-new Date(a))/864e5);
-          const short=d=>new Date(d).toLocaleDateString("th-TH",{day:"numeric",month:"short"});
-          const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
-          const btn=(c,x,f)=>{const b=el("button","b "+c,x);b.type="button";b.onclick=f;return b};
-          let V=0;
-          const AG=new WeakMap(),CM=new WeakMap(),HN={};
-          function agg(j){const c=AG.get(j.tx);if(c&&c.n===j.tx.length)return c;let sum=0,u=0,cost=0,p=0,s=0;for(const t of j.tx){sum+=t.a;u+=t.u||0;if(!t.adj)cost+=t.a;if(t.k==="p")p+=t.a;else if(t.k==="s")s+=t.a}const r={n:j.tx.length,sum,u,cost,p,s};AG.set(j.tx,r);return r}
-          function cm(j){const ym=curC(),c=CM.get(j.tx);if(c&&c.n===j.tx.length&&c.m===ym+pd())return c.l;const l=j.tx.filter(t=>cyc(t.d)===ym);CM.set(j.tx,{n:j.tx.length,m:ym+pd(),l});return l}
-          const units=j=>agg(j).u;
-          const bal=j=>(j.type==="k"&&j.price>0&&agg(j).u>0)?agg(j).u*j.price:agg(j).sum;
-          const px=n=>Number.isFinite(+n)?Number(n).toLocaleString("th-TH",{maximumFractionDigits:2}):"0";
-          const hasA=()=>!!(window.Android&&Android.price);
-          const refresh=()=>{if(!hasA())return;[...new Set(S.jars.filter(j=>j.type==="k"&&j.sym&&!j.mp).map(j=>j.sym))].forEach(x=>Android.price(x))};
-          window.__price=(x,p)=>{S.jars.forEach(j=>{if(j.type==="k"&&j.sym===x&&!j.mp){j.price=p;j.pt=Date.now();j.perr=false}});store();render()};
-          window.__perr=x=>{S.jars.forEach(j=>{if(j.type==="k"&&j.sym===x)j.perr=true});render()};
-          const add=(j,a,n,adj,c,k)=>{V++;const t={id:Date.now()+Math.random(),a,d:td()};if(n)t.n=n;if(adj)t.adj=1;if(c)t.c=c;if(k)t.k=k;if(!isSys(t))UNDO={k:"add",j,t,msg:"บันทึกรายการแล้ว",fresh:1};return j.tx.push(t)};
-          const bk=(j,k)=>agg(j)[k];
-          const ml=m=>new Date(m+"-01").toLocaleDateString("th-TH",{month:"long",year:"numeric"});
-          const done=()=>{hideToast();safe(autoFund);V++;store();render();if(UNDO&&UNDO.fresh){UNDO.fresh=0;showUndo()}};
-          const sweep=(j,ym)=>{
-            const b=bal(j);if(!(b>0))return false;
-            let o=S.jars.find(x=>x.type==="o");
-            if(!o){o={id:Date.now()+1,type:"o",name:"เงินเหลือจากเดือนก่อน",tx:[]};S.jars.push(o)}
-            add(j,-b,"โอนไป "+o.name);
-            o.tx.push({id:Date.now()+Math.random(),a:b,d:td(),n:"จาก "+j.name,adj:false,c:"",k:"",m:ym});
-            return true;
-          };
-          const CATS=["ค่าอาหาร","ค่าน้ำ","ค่าช้อปปิ้ง","ค่าเดินทาง","ค่ารายเดือนให้ที่บ้าน","ค่ารายเดือนทั่วไป","ค่าโทรศัพท์","อื่นๆ"];
-          const MO=["ค่ารายเดือนให้ที่บ้าน","ค่ารายเดือนทั่วไป","ค่าโทรศัพท์"];
-          let CBO=0,MB=0;
-          const isSys=t=>t.g||t.n==="สมทบ PVD"||t.n==="ส่งหุ้นสหกรณ์"||t.n==="แบ่งเงินเดือน"||t.n==="ส่วนที่เหลือจากเงินเดือน"||t.n==="ปรับส่วนที่เหลือ"||String(t.n||"").startsWith("โอนไป");
-          const autoFund=()=>{
-            const t0=td();for(const j of S.jars)if(j.type==="d"&&j.end&&j.end<t0)j.end=eom();
-            for(const j of S.jars)if(j.type==="d")postRec(j);
-            if(!(S.salary>0))return;
-            (S.mon=S.mon||{})[curC()]={inc:S.salary+(S.extra||0),ded:S.deduct||0};
-            const ym=curC();
-            for(const j of S.jars){
-              if(j.type!=="d"||!j.rest)continue;
-              const m=monthly(j);
-              if(j.funded===undefined){
-                const ex=cm(j).filter(t=>t.n==="แบ่งเงินเดือน").reduce((x,t)=>x+t.a,0);
-                if(ex>0){j.funded=ym;j.fa=ex}
-              }
-              if(j.funded!==ym){
-                if(j.funded&&j.sweep)sweep(j,j.funded);
-                j.end=eom();
-                if(m>0)add(j,m,"ส่วนที่เหลือจากเงินเดือน");
-                j.funded=ym;j.fa=m;
-              }else if(Math.abs(m-(j.fa||0))>0.5){
-                add(j,m-(j.fa||0),"ปรับส่วนที่เหลือ");j.fa=m;
-              }
-            }
-          };
-          const monthly=j=>j.type==="f"?S.salary*((j.emp||0)+(j.er||0))/100+(j.mon||0):j.rest?Math.max(0,S.salary+(S.extra||0)-(S.deduct||0)-S.jars.filter(x=>!x.rest).reduce((s,x)=>s+empPart(x),0)):j.type==="p"?S.salary*((j.emp||0)+(j.er||0))/100:(j.type==="s"||j.type==="k"||j.type==="c"||j.type==="g")?(j.mon||0):S.salary*(j.pct||0)/100;
-          const empPart=j=>j.type==="f"?S.salary*(j.emp||0)/100+(j.mon||0):j.type==="p"?S.salary*(j.emp||0)/100:monthly(j);
-          const proj=(b,m,rate,yrs)=>{const r=(rate||0)/1200,n=(yrs||0)*12;return r?b*Math.pow(1+r,n)+m*((Math.pow(1+r,n)-1)/r):b+m*n};
-
-          const NUM=/\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+\.\d{1,2}/g;
-          const thn=t=>String(t).replace(/[\s\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/g,"").toLowerCase();
-          const K=Object.fromEntries(Object.entries({sal:["เงินเดือน","salary"],ext:["ล่วงเวลา","โอที","overtime"],ded:["ฌาปนกิจ","ภาษีเงินได้หัก","ภาษีหัก"],pvd:["กองทุนสำรอง","provident"],coop:["สหกรณ์"],sav:["ออมทรัพย์","ทุนเรือนหุ้น","เงินฝาก","saving"]}).map(([k,a])=>[k,a.map(thn)]));
-          const toNums=t=>(t.match(NUM)||[]).map(x=>parseFloat(x.replace(/,/g,""))).filter(x=>x>=100);
-          function parsePdf(lines){
-            const v={},nl=lines.map(thn);let ded=0,df=false;
-            lines.forEach((ln,i)=>{
-              const n=toNums(ln),h=ks=>K[ks].some(k=>nl[i].includes(k));
-              if(!n.length)return;
-              if(h("sal")&&v.sal==null)v.sal=n[0];
-              if(h("ext")&&v.ext==null)v.ext=n[0];
-              if(h("ded")){ded+=n[n.length-1];df=true}
-              if(h("pvd")&&v.emp==null)v.emp=n[n.length-1];
-              if(h("coop")&&v.coop==null)v.coop=n[n.length-1];
-              if(h("sav")&&v.savb==null)v.savb=Math.max(...n);
-              if(n.length===5&&!/[ก-๙A-Za-z]/.test(ln)&&v.er==null){v.er=n[0];v.pvdb=n[1]+n[2]}
-            });
-            if(df)v.ded=ded;
-            return v;
-          }
-          const candsOf=lines=>lines.flatMap(l=>toNums(l).map(v=>({v,t:l}))).slice(0,80);
-          async function pdfLines(L,buf){
-            const doc=await L.getDocument({data:buf}).promise,lines=[];
-            for(let p=1;p<=doc.numPages;p++){
-              const tc=await(await doc.getPage(p)).getTextContent(),rows={};
-              for(const it of tc.items){if(!it.str||!it.str.trim())continue;const y=Math.round(it.transform[5]/3);(rows[y]=rows[y]||[]).push({x:it.transform[4],s:it.str})}
-              Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y=>lines.push(rows[y].sort((a,b)=>a.x-b.x).map(o=>o.s).join(" ").replace(/\s+/g," ").trim()));
-            }
-            return lines;
-          }
-          let IMP=null;
-          const PJ="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
-          function loadScript(u){return new Promise((ok,no)=>{const sc=document.createElement("script");sc.src=u;sc.onload=ok;sc.onerror=()=>no(new Error("load"));document.head.append(sc)})}
-          async function pdfLib(){
-            if(window.pdfjsLib)return window.pdfjsLib;
-            let base=PJ;
-            if(window.Android){try{await loadScript("pdf.min.js");base=""}catch(e){}}
-            if(!window.pdfjsLib)await loadScript(PJ+"pdf.min.js");
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc=base+"pdf.worker.min.js";
-            return window.pdfjsLib;
-          }
-          function pickPdf(j){
-            const f=document.createElement("input");f.type="file";f.accept="application/pdf,.pdf";
-            f.onchange=async()=>{
-              const file=f.files&&f.files[0];if(!file)return;
-              IMP={jid:j.id,busy:true};OPEN=j.id;render();
-              try{
-                const L=await pdfLib();
-                const lines=await pdfLines(L,new Uint8Array(await file.arrayBuffer()));
-                if(!lines.length)throw new Error("ไม่พบข้อความใน PDF (อาจเป็นรูปสแกน)");
-                IMP={jid:j.id,file:file.name,v:parsePdf(lines),cands:candsOf(lines)};
-              }catch(e){IMP={jid:j.id,err:e&&e.name==="PasswordException"?"PDF มีรหัสผ่าน":String(e&&e.message||e)}}
-              render();
-            };
-            f.click();
-          }
-          function impPanel(j){
-            const p=el("div","imp");
-            if(IMP.busy){p.append(el("div",null,"กำลังอ่าน PDF…"));return p}
-            const close=()=>{IMP=null;render()};
-            const manual=()=>{IMP={jid:j.id,file:"กรอกจากสลิป",v:{},cands:[]};OPEN=j.id;render()};
-            if(IMP.err){
-              p.append(el("div","neg","อ่านไฟล์ไม่สำเร็จ: "+IMP.err),el("div","sub","ไฟล์ที่ป้องกันสิทธิ์อาจเปิดในแอปไม่ได้ ลองวางข้อความ หรือกรอกจากสลิปแทน"));
-              const r=el("div","row2");r.append(btn("v","✍️ กรอกจากสลิป",manual),btn("m","ปิด",close));p.append(r);return p;
-            }
-            p.append(el("b",null,IMP.file==="กรอกจากสลิป"?"✍️ กรอกจากสลิป (เว้นว่างได้ถ้าไม่เปลี่ยน)":"ตรวจยอดจาก "+IMP.file+" ก่อนบันทึก"));
-            const pd=el("details");pd.open=!!IMP.paste;pd.append(el("summary",null,"📋 วางข้อความที่คัดลอกจากสลิป"));
-            const ta=el("textarea");ta.placeholder="เปิดสลิป เลือกข้อความทั้งหมด คัดลอก แล้ววางที่นี่";
-            pd.append(ta,btn("v","อ่านข้อความ",()=>{const ls=ta.value.split(/\n/).map(x=>x.trim()).filter(Boolean);IMP.v=parsePdf(ls);IMP.cands=candsOf(ls);IMP.paste=true;render()}));
-            p.append(pd);
-            const F=[["sal","เงินเดือน (บาท)"],["ext","รายได้อื่นประจำ เช่น ค่าล่วงเวลา"],["ded","หักอื่นๆ ต่อเดือน เช่น ภาษี ฌาปนกิจ"],["emp","เราสมทบ PVD ต่อเดือน (บาท)"],["er","นายจ้างสมทบ PVD ต่อเดือน (บาท)"],["coop","ส่งหุ้นสหกรณ์ต่อเดือน (บาท)"],["pvdb","ยอดสะสม PVD รวม (ส่วนเรา + นายจ้าง)"],["savb","ยอดออมทรัพย์/สหกรณ์สะสม"]],inps={};
-            for(const [k,l] of F){
-              const row=el("div","set");row.append(el("label",null,l));
-              const i=el("input");i.type="text";i.inputMode="decimal";i.inputMode="decimal";i.value=IMP.v[k]!=null?Math.round(IMP.v[k]*100)/100:"";inps[k]=i;row.append(i);
-              if(IMP.cands.length){
-                const sel=el("select"),o0=el("option",null,"เลือกจากตัวเลขที่พบ…");o0.value="";sel.append(o0);
-                for(const c of IMP.cands){const o=el("option",null,px(c.v)+" · "+c.t.slice(0,30));o.value=c.v;sel.append(o)}
-                sel.onchange=()=>{if(sel.value)i.value=sel.value};row.append(sel);
-              }
-              p.append(row);
-            }
-            const g=k=>{const x=parseNum(inps[k].value).v;return x===undefined?null:x};
-            const r=el("div","row2");
-            r.append(btn("p","บันทึกทั้งหมด",()=>{
-              const vs=Object.values(inps),bd=vs.filter(e=>parseNum(e.value).bad);
-              if(bd.length){bd.forEach(e=>e.classList.add("err"));toast(NUMMSG);return}
-              if(vs.every(e=>!e.value.trim())){toast(FILLMSG);return}
-              if(g("sal")!=null)S.salary=g("sal");
-              if(g("ext")!=null)S.extra=g("ext");
-              if(g("ded")!=null)S.deduct=g("ded");
-              const base=S.salary;
-              if(g("emp")!=null&&base>0)j.emp=Math.round(g("emp")/base*10000)/100;
-              if(g("er")!=null&&base>0)j.er=Math.round(g("er")/base*10000)/100;
-              if(g("coop")!=null)j.mon=g("coop");
-              if(g("pvdb")!=null)add(j,g("pvdb")-bk(j,"p"),"ยอดจากสลิป",true,"","p");
-              if(g("savb")!=null)add(j,g("savb")-bk(j,"s"),"ยอดจากสลิป",true,"","s");
-              IMP=null;done()}),btn("m","ยกเลิก",close));
-            p.append(r);return p;
-          }
-          const EXP={};
-          let SM=null,SYR=null,SUO=false,SPV="m",SPM="cat",SDO=false;
-          const COL=["#FF7FAF","#8B78EE","#38C79C","#4FAEF2","#FF9168","#EFB02E","#7ACB5B","#E86AC1","#8AA0B5"];
-          const shiftM=(m,n)=>{const [y,mo]=m.split("-").map(Number);return ymd(new Date(y,mo-1+n,1)).slice(0,7)};
-          const pc=(v,t)=>t>0?(v/t*100).toFixed(1)+"%":"–";
-          let IX=null,IXV=-1,SC={},SCV=-1;
-          function idx(){if(IX&&IXV===V)return IX;IX={};for(const j of S.jars)for(const t of j.tx){if(t.adj||t.o)continue;const m=cyc(t.d);(IX[m]=IX[m]||[]).push([j,t])}IXV=V;return IX}
-          const stats=ym=>{if(SCV!==V){SC={};SCV=V}return SC[ym]||(SC[ym]=stats0(ym))};
-          function stats0(ym){
-            const mon=ym.length===4?Object.entries(S.mon||{}).filter(([k])=>k.startsWith(ym)).reduce((a,[,v])=>({inc:a.inc+(v.inc||0),ded:a.ded+(v.ded||0)}),{inc:0,ded:0}):((S.mon||{})[ym]||{}),ex={},sv={};let add2=0;
-            const X=idx(),E=ym.length===4?Object.keys(X).filter(k=>k.startsWith(ym)).flatMap(k=>X[k]):(X[ym]||[]);
-            for(const [j,t] of E){
-              const tp=j.type;
-              {
-                if(tp==="d"||tp==="o"){
-                  if(isSys(t)||t.m)continue;
-                  if(t.a<0){const k=t.c||(tp==="o"?"จากเงินเหลือ":"ไม่ระบุหมวด");ex[k]=(ex[k]||0)-t.a}else add2+=t.a;
-                }else if(tp==="i"&&t.a<0){ex["เบี้ยประกัน"]=(ex["เบี้ยประกัน"]||0)-t.a}
-                else if(t.a>0&&"fkcipsg".includes(tp)){
-                  let a=t.a;
-                  if(tp==="f"&&t.n==="สมทบ PVD"&&(j.emp||0)+(j.er||0)>0)a=a*(j.emp||0)/((j.emp||0)+(j.er||0));
-                  sv[j.name]=(sv[j.name]||0)+a;
-                }
-              }
-            }
-            if(mon.ded>0)ex["หักอื่นๆ (ภาษี ฯลฯ)"]=mon.ded;
-            const sum=o=>Object.values(o).reduce((x,y)=>x+y,0);
-            const inc=(mon.inc||0)+add2;
-            return {inc,reg:mon.inc||0,add2,ex,sv,spend:sum(ex),save:sum(sv),left:inc-sum(ex)-sum(sv)};
-          }
-          function pie(items,total,center){
-            const NS="http://www.w3.org/2000/svg",mk=(t,at)=>{const e=document.createElementNS(NS,t);for(const k in at)e.setAttribute(k,at[k]);return e};
-            const svg=mk("svg",{viewBox:"-1.05 -1.05 2.1 2.1",width:"200",height:"200",role:"img","aria-label":"แผนภูมิวงกลม"});
-            svg.style.cssText="display:block;margin:8px auto";
-            let a0=-Math.PI/2;
-            items.forEach((it,i)=>{
-              const f=it.v/total;let e;
-              if(f>=0.9999)e=mk("circle",{r:1});
-              else{const a1=a0+f*2*Math.PI;e=mk("path",{d:`M ${Math.cos(a0)} ${Math.sin(a0)} A 1 1 0 ${f>.5?1:0} 1 ${Math.cos(a1)} ${Math.sin(a1)} L 0 0 Z`});a0=a1}
-              e.style.fill=it.col||COL[i%COL.length];e.style.stroke="var(--card)";e.style.strokeWidth="0.025";svg.append(e);
-            });
-            const h=mk("circle",{r:.56});h.style.fill="var(--card)";svg.append(h);
-            const t1=mk("text",{x:0,y:-.05,"text-anchor":"middle","font-size":".13"});t1.textContent=center[0];t1.style.fill="var(--mute)";
-            const t2=mk("text",{x:0,y:.17,"text-anchor":"middle","font-size":".2","font-weight":"700"});t2.textContent=center[1];t2.style.fill="var(--ink)";
-            svg.append(t1,t2);return svg;
-          }
-          function sumPanel(){
-            const c=$("sum");c.innerHTML="";
-            const cur=curC(),curY=cur.slice(0,4);
-            c.append(el("b",null,"📊 สรุปรายรับ-รายจ่าย"));
-            const bt=el("div","tabs");bt.style.margin="10px 0 4px";
-            for(const [k,t] of [["m","📅 รายเดือน"],["y","🗓️ รายปี"]]){
-              const b=el("button",SUO&&SPV===k?"on":"",t);b.type="button";
-              b.onclick=()=>{if(SUO&&SPV===k)SUO=false;else{SUO=true;SPV=k}render()};bt.append(b);
-            }
-            c.append(bt);
-            if(!SUO)return;
-            const isY=SPV==="y",key=isY?(SYR||curY):(SM||cur),st=stats(key);
-            const go=n=>()=>{if(isY)SYR=String(+key+n);else SM=shiftM(key,n);render()};
-            const nav=el("div");nav.style.cssText="display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;text-align:center;margin:8px 0";
-            const pb=btn("v","‹",go(-1)),nb=btn("v","›",go(1));
-            nb.disabled=isY?key>=curY:key>=cur;pb.setAttribute("aria-label","ก่อนหน้า");nb.setAttribute("aria-label","ถัดไป");
-            nav.append(pb,el("b",null,isY?"ปี "+(+key+543):ml(key)+(pd()>1?" ("+short(cs(key))+" – "+short(cend(key))+")":"")),nb);c.append(nav);
-            if(!(st.inc>0||st.spend>0||st.save>0)){c.append(el("div","empty","ยังไม่มีรายการในช่วงนี้"));return}
-            const sg=el("div","stats");
-            for(const [l,v,cl] of [["เงินเข้า",st.inc,"pos"],["ค่าใช้จ่าย",st.spend,"neg"],["เงินออม/ลงทุน",st.save,""],["คงเหลือ",st.left,st.left<0?"neg":"pos"]]){
-              const b=el("div","st");b.append(el("small",null,l),el("b",cl,fmt(v)+" ฿"),el("i",null,l==="เงินเข้า"?"100%":pc(v,st.inc)+" ของเงินเข้า"));sg.append(b);
-            }
-            c.append(sg);
-            const tb=el("div","tabs");tb.style.marginTop="12px";
-            for(const [k,t] of [["cat","ค่าใช้จ่ายตามหมวด"],["all","ภาพรวมเข้า-ออก"]]){const b=el("button",SPM===k?"on":"",t);b.type="button";b.onclick=()=>{SPM=k;render()};tb.append(b)}
-            c.append(tb);
-            let items,total,center;
-            if(SPM==="cat"){items=Object.entries(st.ex).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).map(([n,v])=>({n,v}));total=st.spend;center=["ค่าใช้จ่าย",fmt(st.spend)]}
-            else{items=[{n:"ค่าใช้จ่าย",v:st.spend,col:"#FF7FAF"},{n:"เงินออม/ลงทุน",v:st.save,col:"#8B78EE"},{n:"คงเหลือ",v:Math.max(0,st.left),col:"#38C79C"}].filter(x=>x.v>0);total=items.reduce((x,y)=>x+y.v,0);center=["เงินเข้า",fmt(st.inc)]}
-            if(total>0){
-              c.append(pie(items,total,center));
-              const lg=el("ul");
-              items.forEach((it,i)=>{const li=el("li"),dot=el("span");dot.style.cssText="width:12px;height:12px;border-radius:50%;flex:none;background:"+(it.col||COL[i%COL.length]);li.append(dot,el("span","n",it.n),el("b",null,fmt(it.v)+" ฿ · "+pc(it.v,total)));lg.append(li)});
-              c.append(lg);
-            }else c.append(el("div","empty","ยังไม่มีค่าใช้จ่ายในช่วงนี้"));
-            if(isY){
-              c.append(el("div","sub","แยกรายเดือน (บาท)"));
-              const mt=el("div","mt");
-              for(const t of ["เดือน","เข้า","ใช้จ่าย","ออม"])mt.append(el("b",null,t));
-              for(let m=1;m<=12;m++){
-                const s2=stats(key+"-"+pad(m));if(!(s2.inc>0||s2.spend>0||s2.save>0))continue;
-                mt.append(el("span",null,new Date(+key,m-1,1).toLocaleDateString("th-TH",{month:"short"})),el("span",null,fmt(s2.inc)),el("span","neg",fmt(s2.spend)),el("span",null,fmt(s2.save)));
-              }
-              c.append(mt);
-            }
-            const dt=el("details");dt.open=SDO;dt.addEventListener("toggle",()=>{SDO=dt.open});
-            dt.append(el("summary",null,"รายละเอียดเงินเข้า-ออก (% ของเงินเข้า)"));
-            const ul=el("ul");
-            const head=t=>{const li=el("li");li.append(el("b",null,t));ul.append(li)};
-            const row=(l,v)=>{const li=el("li");li.append(el("span","n",l),el("span",null,fmt(v)+" ฿ · "+pc(v,st.inc)));ul.append(li)};
-            head("⬇️ เงินเข้า");row("รายได้ประจำ (เงินเดือน + อื่นๆ)",st.reg);if(st.add2>0)row("เติม/รับเพิ่ม",st.add2);
-            head("💜 เงินออม/ลงทุน");Object.entries(st.sv).sort((a,b)=>b[1]-a[1]).forEach(([n,v])=>row(n,v));
-            head("🛍️ ค่าใช้จ่าย");Object.entries(st.ex).sort((a,b)=>b[1]-a[1]).forEach(([n,v])=>row(n,v));
-            dt.append(ul);c.append(dt);
-          }
-          const NUMMSG="โปรดระบุเป็นตัวเลขเท่านั้น",FILLMSG="กรุณากรอกข้อมูลให้ครบถ้วนก่อน";
-          let _tt=null;
-          function toast(m){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.setAttribute("role","alert");document.body.append(t)}t.textContent=m;t.style.display="block";clearTimeout(_tt);_tt=setTimeout(()=>{t.style.display="none"},3500)}
-          function hideToast(){const t=document.getElementById("toast");if(t)t.style.display="none"}
-          function report(e){try{console.error(e)}catch(_){}toast("ขออภัย เกิดข้อผิดพลาดบางส่วน ข้อมูลของคุณยังปลอดภัย ลองใหม่อีกครั้ง")}
-          function safe(f){try{f()}catch(e){report(e)}}
-          function parseNum(raw){const t=String(raw==null?"":raw).trim();if(!t)return{empty:true};const c=t.replace(/,/g,"");if(!/^(\d+\.?\d*|\.\d+)$/.test(c))return{bad:true};const v=parseFloat(c);return Number.isFinite(v)?{v}:{bad:true}}
-          function pn(e){const r=parseNum(e.value);e.classList.toggle("err",!!r.bad);e._why=r.bad?"bad":r.empty?"empty":"";if(r.bad)toast(NUMMSG);return r.v===undefined?NaN:r.v}
-          function need(e){e.classList.add("err");if(e.focus)e.focus();if(e._why!=="bad")toast(e._why==="empty"?FILLMSG:"จำนวนเงินต้องมากกว่า 0")}
-          addEventListener("error",e=>report(e.error||e.message));addEventListener("unhandledrejection",e=>report(e.reason));
-          document.addEventListener("input",e=>{if(e.target.classList)e.target.classList.remove("err")});
-          function failCard(j,e,jt,root){report(e);const c=el("section","card");c.append(el("div","neg","⚠️ กระปุก “"+(j&&j.name||"")+"” แสดงผลไม่ได้เพราะข้อมูลผิดปกติ"));const b=el("button","lnk","ลบกระปุกนี้");b.type="button";b.onclick=()=>{S.jars=S.jars.filter(x=>x!==j);done()};c.append(b);(j&&j.type==="d"?jt:root).append(c)}
-          let EDIT=null,DT="",UNDO=null,RCO=0,CFO=false,IMPD=null,_ut=null,LASTAL="",PREVO=null,LOCKED=false,HIDT=0;
-          /* ---- categories / widget bridge ---- */
-          const cats=()=>Array.isArray(S.cats)&&S.cats.length?S.cats:CATS;
-          let LASTQ="";
-          function syncQuick(){
-            if(!window.Android||!Android.setQuick)return;
-            const dj=S.jars.find(j=>j.type==="d"),sp=dj?-cm(dj).filter(t=>t.a<0&&!isSys(t)).reduce((x,t)=>x+t.a,0):0;
-            const q=JSON.stringify({cats:cats(),spent:Math.round(sp*100)/100});
-            if(q!==LASTQ){LASTQ=q;try{Android.setQuick(q)}catch(e){}}
-          }
-          function syncNative(){
-            if(!window.Android)return;
-            try{const r=Android.load();if(r&&r!==LASTSAVED){S=Object.assign({salary:0,auto:false,last:"",jars:[]},JSON.parse(r));LASTSAVED=r;clean();V++;render()}}catch(e){report(e)}
-          }
-          function renameCat(a,b){
-            S.cats=cats().map(x=>x===a?b:x);
-            for(const j of S.jars){for(const t of j.tx)if(t.c===a)t.c=b;if(j.cb&&a in j.cb){j.cb[b]=j.cb[a];delete j.cb[a]}for(const r of j.rec||[])if(r.c===a)r.c=b}
-            CFO=true;S.jars.forEach(touch);done();
-          }
-          function catPanel(g){
-            const box=el("div","set");box.append(el("label",null,"หมวดรายจ่าย (ใช้ทั้งในแอปและ widget)"));
-            const list=cats();
-            list.forEach((n,i)=>{
-              const row=el("div","row2"),inp=el("input");inp.value=n;inp.setAttribute("aria-label","ชื่อหมวด");
-              inp.onchange=()=>{const v=inp.value.trim();if(!v){inp.value=n;toast(FILLMSG);return}if(v!==n&&list.includes(v)){inp.value=n;toast("มีหมวดนี้แล้ว");return}if(v!==n)renameCat(n,v)};
-              const x=el("button","lnk","ลบ");x.type="button";x.onclick=()=>{S.cats=list.filter((_,k)=>k!==i);CFO=true;done()};
-              row.append(inp,x);box.append(row);
-            });
-            const ni=el("input");ni.placeholder="เพิ่มหมวดใหม่ เช่น ค่ากาแฟ";
-            box.append(ni,btn("p","เพิ่มหมวด",()=>{const v=ni.value.trim();if(!v){ni.classList.add("err");toast(FILLMSG);return}if(list.includes(v)){toast("มีหมวดนี้แล้ว");return}S.cats=[...list,v];CFO=true;done()}));
-            g.append(box);
-          }
-          /* ---- pay cycle ---- */
-          const pd=()=>{const p=Math.round(+S.payday);return p>=1&&p<=31?p:1};
-          const dimM=(y,m)=>new Date(y,m,0).getDate();
-          const pdt=x=>new Date(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
-          function cs(l){const [y,m]=l.split("-").map(Number);return ymd(new Date(y,m-1,Math.min(pd(),dimM(y,m))))}
-          function cyc(d){const y=+d.slice(0,4),m=+d.slice(5,7);return +d.slice(8,10)>=Math.min(pd(),dimM(y,m))?d.slice(0,7):shiftM(d.slice(0,7),-1)}
-          const curC=()=>cyc(td());
-          function cend(l){const x=pdt(cs(shiftM(l||curC(),1)));x.setDate(x.getDate()-1);return ymd(x)}
-          /* ---- edit / undo ---- */
-          function touch(j){AG.delete(j.tx);CM.delete(j.tx);V++}
-          function showUndo(){let u=document.getElementById("undo");if(!u){u=document.createElement("div");u.id="undo";document.body.append(u)}u.innerHTML="";u.append(el("span",null,UNDO.msg));const b=el("button",null,"เลิกทำ");b.type="button";b.onclick=undo;u.append(b);u.style.display="flex";clearTimeout(_ut);_ut=setTimeout(hideUndo,6000)}
-          function hideUndo(){const u=document.getElementById("undo");if(u)u.style.display="none"}
-          function undo(){const u=UNDO;if(!u)return;UNDO=null;
-            if(u.k==="add")u.j.tx=u.j.tx.filter(y=>y!==u.t);
-            else if(u.k==="del")u.j.tx.splice(Math.min(u.i,u.j.tx.length),0,u.t);
-            else if(u.k==="edit"){for(const k of ["a","d","c","n"]){if(u.was[k]===undefined)delete u.t[k];else u.t[k]=u.was[k]}}
-            hideUndo();touch(u.j);done()}
-          function editForm(j,t){
-            const li=el("li");li.style.cssText="display:grid;grid-template-columns:1fr 1fr;gap:6px";
-            const a=el("input");a.type="text";a.inputMode="decimal";a.value=Math.abs(t.a);a.setAttribute("aria-label","จำนวนเงิน");
-            const d=el("input");d.type="date";d.value=t.d;d.max=td();d.setAttribute("aria-label","วันที่");
-            li.append(a,d);
-            let c=null;
-            if(j.type==="d"&&t.a<0){c=el("select");for(const x of ["",...cats()]){const o=el("option",null,x||"ไม่ระบุหมวด");o.value=x;c.append(o)}c.value=t.c||"";li.append(c)}
-            const n=el("input");n.value=t.n||"";n.placeholder="โน้ต";n.setAttribute("aria-label","โน้ต");li.append(n);
-            li.append(btn("p","บันทึก",()=>{
-              const v=pn(a);if(!(v>0)){need(a);return}
-              if(!d.value||d.value>td()){d.classList.add("err");toast(FILLMSG);return}
-              const was={a:t.a,d:t.d,c:t.c,n:t.n};
-              t.a=(t.a<0?-1:1)*v;t.d=d.value;
-              if(c){if(c.value)t.c=c.value;else delete t.c}
-              if(n.value.trim())t.n=n.value.trim();else delete t.n;
-              UNDO={k:"edit",j,t,was,msg:"แก้ไขรายการแล้ว",fresh:1};EDIT=null;touch(j);done()}),btn("m","ยกเลิก",()=>{EDIT=null;render()}));
-            return li;
-          }
-          /* ---- recurring ---- */
-          function postRec(j){const cur=curC();for(const r of j.rec||[]){if(!r.last)r.last=cur;let g=0;while(r.last<cur&&g++<24){r.last=shiftM(r.last,1);const d=cs(r.last),t={id:Date.now()+Math.random(),a:-r.a,d:d>td()?td():d,n:"ประจำ: "+r.n};if(r.c)t.c=r.c;j.tx.push(t)}}}
-          /* ---- alerts ---- */
-          function alertsList(){
-            const L=[],t0=td();
-            if(S.salary>0&&!S.auto&&S.last!==curC())L.push("💰 รอบเงินเดือนใหม่เริ่มแล้ว กด “แบ่งตอนนี้” ที่การ์ดเงินเดือน");
-            for(const j of S.jars){
-              if(j.type==="i"&&j.due&&j.premium>0){const n=dd(t0,j.due);if(n<=7)L.push("🛡️ "+j.name+(n<0?" เลยกำหนดจ่ายเบี้ย "+(-n)+" วัน":n===0?" ครบกำหนดจ่ายเบี้ยวันนี้":" ครบกำหนดจ่ายเบี้ยอีก "+n+" วัน"))}
-              if(j.type==="d"&&j.cb)for(const k of Object.keys(j.cb)){const b=j.cb[k];if(!(b>0))continue;const sp=-cm(j).filter(t=>t.a<0&&t.c===k).reduce((x,t)=>x+t.a,0);if(sp>b)L.push("⚠️ "+k+" เกินงบ "+fmt(sp-b)+" ฿");else if(sp>=b*0.9)L.push("⚡ "+k+" ใช้ไป "+Math.round(sp/b*100)+"% ของงบ")}
-            }
-            return L;
-          }
-          function alertsPanel(){const c=$("alerts"),L=alertsList();c.innerHTML="";c.style.display=L.length?"":"none";for(const x of L)c.append(el("div","alert",x))}
-          function syncAlerts(){
-            if(!window.Android)return;
-            const out=[],t0=td(),lim=ymd(new Date(Date.now()+90*864e5));
-            const put=(d,t,m)=>{if(d>=t0&&d<=lim)out.push({d,t,m})};
-            for(const j of S.jars)if(j.type==="i"&&j.due&&j.premium>0)for(const o of [7,3,1,0]){const x=pdt(j.due);x.setDate(x.getDate()-o);put(ymd(x),"🛡️ "+j.name,o?"ครบกำหนดจ่ายเบี้ยอีก "+o+" วัน":"ครบกำหนดจ่ายเบี้ยวันนี้")}
-            if(S.salary>0)put(cs(shiftM(curC(),1)),"💰 เงินเดือนออกวันนี้","เปิดแอปเพื่อแบ่งเงินเข้ากระปุก");
-            const j2=JSON.stringify(out);if(j2!==LASTAL){LASTAL=j2;try{if(Android.setAlerts)Android.setAlerts(j2)}catch(e){}}
-            const over=new Set(alertsList().filter(x=>x.startsWith("⚠️")));
-            if(PREVO)for(const x of over)if(!PREVO.has(x)){try{if(Android.pushNote)Android.pushNote("แจ้งเตือนงบ",x.slice(2).trim())}catch(e){}}
-            PREVO=over;
-          }
-          /* ---- PIN lock ---- */
-          const h53=(str,seed=0)=>{let h1=0xdeadbeef^seed,h2=0x41c6ce57^seed;for(let i=0,ch;i<str.length;i++){ch=str.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677)}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return String(4294967296*(2097151&h2)+(h1>>>0))};
-          const pinH=p=>h53("jars|"+p);
-          function lockUI(){
-            if(!S.pin||LOCKED)return;LOCKED=true;
-            const o=document.createElement("div");o.id="lock";
-            const dots=el("div","ld"),msg=el("div","lm");let v="";
-            const draw=()=>{dots.textContent="●".repeat(v.length)+"○".repeat(Math.max(0,6-v.length))};draw();
-            const unlock=()=>{LOCKED=false;o.remove()};
-            const pad=el("div","lp");
-            for(const k of ["1","2","3","4","5","6","7","8","9","⌫","0","✔"]){
-              const b=el("button",null,k);b.type="button";
-              b.onclick=()=>{msg.textContent="";if(k==="⌫")v=v.slice(0,-1);else if(k==="✔"){if(pinH(v)===S.pin)return unlock();msg.textContent="PIN ไม่ถูกต้อง";v=""}else if(v.length<6)v+=k;draw();if(k!=="✔"&&k!=="⌫"&&pinH(v)===S.pin)unlock()};
-              pad.append(b);
-            }
-            o.append(el("div","lt","🔒 ใส่ PIN เพื่อเปิดแอป"),dots,msg,pad);
-            if(window.Android&&Android.bio){const f=el("button","lnk","👆 ใช้ลายนิ้วมือ");f.type="button";f.onclick=()=>Android.bio();o.append(f);window.__bio=ok=>{if(ok)unlock()};setTimeout(()=>{try{Android.bio()}catch(e){}},300)}
-            const fg=el("button","lnk","ลืม PIN (ล้างข้อมูลทั้งหมด)");fg.type="button";
-            fg.onclick=()=>{if(fg.dataset.c){S={salary:0,auto:false,last:"",jars:[]};flush();location.reload()}else{fg.dataset.c="1";fg.textContent="แตะอีกครั้งเพื่อยืนยันล้างข้อมูล"}};
-            o.append(fg);document.body.append(o);
-          }
-          document.addEventListener("visibilitychange",()=>{if(document.hidden)HIDT=Date.now();else{syncNative();if(S.pin&&Date.now()-HIDT>30000)lockUI()}});
-          /* ---- backup / settings ---- */
-          const stamp=()=>td().replace(/-/g,"");
-          function csvOf(){const rows=[["วันที่","กระปุก","ประเภท","หมวด","โน้ต","จำนวนเงิน"]];for(const j of S.jars)for(const t of j.tx)rows.push([t.d,j.name,TY[j.type]||j.type,t.c||"",t.n||"",t.a]);return "\ufeff"+rows.map(r=>r.map(x=>'"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\r\n")}
-          function saveFile(name,mime,text){
-            if(window.Android&&Android.saveFile){Android.saveFile(name,mime,text);return}
-            try{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name;document.body.append(a);a.click();a.remove();toast("ส่งออกแล้ว ถ้าไม่เห็นไฟล์ ให้ใช้ปุ่มคัดลอกข้อความสำรอง")}catch(e){toast("ส่งออกไฟล์ไม่ได้ในหน้านี้ ใช้ปุ่มคัดลอกข้อความสำรองแทน")}
-          }
-          function stageImport(text){
-            try{const o=JSON.parse(text),d=o&&o.data?o.data:o;if(!d||!Array.isArray(d.jars))throw 0;
-              IMPD={d,nj:d.jars.length,nt:d.jars.reduce((x,j)=>x+((j&&j.tx)||[]).length,0)};CFO=true;render()}
-            catch(e){toast("ไฟล์สำรองไม่ถูกต้อง โปรดเลือกไฟล์ที่ส่งออกจากแอปนี้")}
-          }
-          function cfgPanel(){
-            const c=$("cfg");c.innerHTML="";
-            const d=el("details");d.open=CFO;d.addEventListener("toggle",()=>{CFO=d.open});
-            d.append(el("summary",null,"⚙️ สำรองข้อมูล ความปลอดภัย และตรวจระบบ"));
-            const g=el("div","grid");g.style.marginTop="10px";
-            g.append(btn("v","💾 ส่งออกไฟล์สำรอง (JSON)",()=>saveFile("jars-backup-"+stamp()+".json","application/json",JSON.stringify({v:2,data:S}))));
-            g.append(btn("v","📊 ส่งออก CSV (เปิดใน Excel)",()=>saveFile("jars-"+stamp()+".csv","text/csv",csvOf())));
-            g.append(btn("v","📂 นำเข้าไฟล์สำรอง",()=>{const f=document.createElement("input");f.type="file";f.accept="application/json,.json";f.onchange=()=>{const fl=f.files&&f.files[0];if(!fl)return;const r=new FileReader();r.onload=()=>stageImport(String(r.result));r.onerror=()=>toast("อ่านไฟล์ไม่สำเร็จ");r.readAsText(fl)};f.click()}));
-            const ta=el("textarea");ta.placeholder="หรือวางข้อความสำรองที่นี่ แล้วกดนำเข้า";
-            g.append(ta,btn("v","นำเข้าจากข้อความ",()=>stageImport(ta.value)),btn("v","📋 คัดลอกข้อความสำรอง",()=>{ta.value=JSON.stringify({v:2,data:S});ta.select();try{document.execCommand("copy");toast("คัดลอกแล้ว")}catch(e){}}));
-            if(IMPD){
-              const b=el("div","imp");b.append(el("div",null,"พบข้อมูล "+IMPD.nj+" กระปุก "+IMPD.nt+" รายการ ข้อมูลปัจจุบันจะถูกแทนที่ (สำรองไว้ให้ 1 ชุด)"));
-              const ok=btn("p","แทนที่ข้อมูลปัจจุบัน",()=>{if(!ok.dataset.c){ok.dataset.c="1";ok.textContent="แตะอีกครั้งเพื่อยืนยัน";return}
-                try{localStorage.setItem(KEY+"-bak",JSON.stringify(S))}catch(e){}
-                S=Object.assign({salary:0,auto:false,last:"",jars:[],seeded:true},IMPD.d);IMPD=null;clean();done();toast("นำเข้าข้อมูลแล้ว")});
-              const r=el("div","row2");r.append(ok,btn("m","ยกเลิก",()=>{IMPD=null;render()}));b.append(r);g.append(b);
-            }
-            catPanel(g);
-            const pr=el("div","set");pr.append(el("label",null,S.pin?"เปลี่ยน PIN (ตัวเลข 4–6 หลัก)":"ตั้ง PIN ล็อกแอป (ตัวเลข 4–6 หลัก)"));
-            const pi=el("input");pi.type="password";pi.inputMode="numeric";pi.maxLength=6;pi.placeholder="PIN 4–6 หลัก";pi.autocomplete="off";pr.append(pi);
-            const pr2=el("div","row2");
-            pr2.append(btn("p","บันทึก PIN",()=>{if(!/^\d{4,6}$/.test(pi.value)){pi.classList.add("err");toast("PIN ต้องเป็นตัวเลข 4–6 หลัก");return}S.pin=pinH(pi.value);done();toast("ตั้ง PIN แล้ว")}),S.pin?btn("m","ปิด PIN",()=>{delete S.pin;done();toast("ปิด PIN แล้ว")}):el("span"));
-            pr.append(pr2);g.append(pr);
-            const out=el("ul");
-            g.append(btn("v","🔧 ตรวจระบบ",async()=>{
-              out.innerHTML="";const row=(ok,t)=>{const li=el("li");li.append(el("span","n",(ok?"✅ ":"❌ ")+t));out.append(li)};
-              try{localStorage.setItem("__t","1");row(localStorage.getItem("__t")==="1","เก็บข้อมูลในเครื่อง");localStorage.removeItem("__t")}catch(e){row(false,"เก็บข้อมูลในเครื่อง")}
-              row(!!window.Android,"เชื่อมต่อแอป Android (ไฟล์ / widget / แจ้งเตือน / ลายนิ้วมือ)");
-              try{await pdfLib();row(true,"ตัวอ่าน PDF")}catch(e){row(false,"ตัวอ่าน PDF")}
-              if(window.Android&&Android.price){const p=await new Promise(res=>{const o1=window.__price,o2=window.__perr;let f=false;const fin=v=>{if(f)return;f=true;window.__price=o1;window.__perr=o2;res(v)};window.__price=(x,v)=>fin(v);window.__perr=()=>fin(0);Android.price("PTT.BK");setTimeout(()=>fin(-1),8000)});row(p>0,"ดึงราคาหุ้น (PTT.BK)"+(p>0?" = "+px(p):""))}
-              row(true,"ข้อมูลทั้งหมด "+S.jars.length+" กระปุก "+S.jars.reduce((x,j)=>x+j.tx.length,0)+" รายการ");
-            }),out);
-            d.append(g);c.append(d);
-          }
-          const ICONS=["🐷","💰","🏦","🏠","🚗","✈️","🎓","🧸","🍼","🛒","🍜","☕","🎁","💍","🏖️","📱","💊","🐶","🐱","🎮","👗","💻","🔧","⭐","❤️","🌱"];
-          const firstG=v=>{v=v.trim();if(!v)return "";return window.Intl&&Intl.Segmenter?[...new Intl.Segmenter(undefined,{granularity:"grapheme"}).segment(v)][0].segment:Array.from(v)[0]};
-          function iconPick(p,cur,cb){
-            const g=el("div","icons");
-            for(const x of ICONS){const b=el("button",x===cur?"on":"",x);b.type="button";b.setAttribute("aria-label","ไอคอน "+x);b.onclick=()=>cb(x);g.append(b)}
-            const i=el("input");i.placeholder="หรือพิมพ์อีโมจิเอง";i.style.marginTop="8px";i.onchange=()=>{const x=firstG(i.value);if(x)cb(x)};
-            p.append(g,i);
-          }
-          function fld(p,label,o,k,kind,opts){
-            p.append(el("label",null,label));
-            let i;
-            if(opts){i=el("select");for(const [v,t] of opts){const op=el("option",null,t);op.value=v;i.append(op)}i.value=o[k]||opts[0][0]}
-            else{i=el("input");i.type=kind==="date"?"date":(kind==="t"||kind==="x")?"text":"text";if(kind==="n"){i.inputMode="decimal"}i.value=o[k]||""}
-            i.onchange=()=>{if(kind==="n"){const r=parseNum(i.value);if(r.bad){i.classList.add("err");toast(NUMMSG);return}o[k]=r.empty?0:r.v}else o[k]=kind==="t"?i.value.trim().toUpperCase():kind==="x"?(i.value.trim()||o[k]):(kind==="date"||opts)?i.value:0;if(k==="sym")o.price=0;done();if(k==="sym")refresh()};
-            p.append(i);
-          }
-          function run(){
-            if(!(S.salary>0))return;
-            const ym=curC();
-            if(S.last&&S.last!==ym)for(const j of S.jars.slice())if(j.type==="d"&&j.sweep&&!j.rest)sweep(j,S.last);
-            for(const j of S.jars){
-              if(j.rest){j.end=eom();continue}
-              if(j.type==="f"){const pv=S.salary*((j.emp||0)+(j.er||0))/100;if(pv>0)add(j,pv,"สมทบ PVD",false,"","p");if(j.mon>0)add(j,j.mon,"ส่งหุ้นสหกรณ์",false,"","s");continue}
-              const a=monthly(j);if(a>0)add(j,a,"แบ่งเงินเดือน");
-            }
-            S.last=curC();
-          }
-          function demo(){
-            S.salary=30000;S.auto=false;
-            const m=(a,n)=>[{id:Math.random(),a,d:td(),n}];
-            S.jars=[
-              {id:1,type:"d",name:"รายรับ-รายจ่าย (ตัวอย่าง)",end:eom(),rest:true,sweep:true,cb:{"ค่ารายเดือนทั่วไป":3000,"ค่าโทรศัพท์":599,"ค่าอาหาร":6000,"ค่าเดินทาง":2500,"ค่าช้อปปิ้ง":1500},tx:[]},
-              {id:2,type:"f",name:"PVD + สหกรณ์ (ตัวอย่าง)",emp:5,er:5,prate:5,mon:3000,srate:5,yrs:10,tx:[{id:Math.random(),a:120000,d:td(),n:"ยอดปัจจุบัน",k:"p"},{id:Math.random(),a:60000,d:td(),n:"ทุนเรือนหุ้น",k:"s"}]},
-              {id:3,type:"i",name:"ประกัน (ตัวอย่าง)",pct:7,premium:24000,cyc:"y",due:ymd(new Date(Date.now()+60*864e5)),cover:1000000,tx:m(4000,"เริ่มต้น")},
-              {id:8,type:"o",name:"เงินเหลือจากเดือนก่อน (ตัวอย่าง)",tx:[{id:Math.random(),a:850,d:td(),n:"จาก ใช้รายวัน",m:shiftM(curC(),-1)}]},
-              {id:5,type:"k",name:"DCA หุ้น (ตัวอย่าง)",mon:5000,rate:7,yrs:10,sym:"PTT.BK",price:34,pt:Date.now(),tx:[{id:Math.random(),a:48000,d:td(),n:"ลงทุนสะสม",u:1500}]},
-              {id:7,type:"c",name:"กองทุนลูก (ตัวอย่าง)",mon:3000,goal:500000,yrs:10,rate:3,tx:m(40000,"เริ่มต้น")}
-            ];
-            const od=ymd(new Date(Date.now()-70*864e5));S.jars.forEach(x=>{if(x.type!=="d"&&x.type!=="o")x.tx.forEach(t=>{t.d=od;t.o=1})});
-            const r=S.jars[0];for(const [a,c] of [[120,"ค่าอาหาร"],[230,"ค่าอาหาร"],[45,"ค่าเดินทาง"],[105,"ค่าเดินทาง"],[80,"ค่าน้ำ"],[420,"ค่าช้อปปิ้ง"],[599,"ค่าโทรศัพท์"]])add(r,-a,"",false,c);run();
-            done();
-          }
-
-          function salary(){
-            const c=$("sal");c.innerHTML="";
-            const g=el("div","grid");
-            const used=S.salary>0?Math.round(S.jars.filter(j=>!j.rest).reduce((s,j)=>s+empPart(j),0)/S.salary*100):0;
-            g.append(el("b",null,"💰 เงินเดือนและกฎแบ่งเงิน"));
-            fld(g,"เงินเดือนต่อเดือน (บาท)",S,"salary","n");
-            fld(g,"เงินเดือนออกวันที่ (1-31) เว้นว่าง = นับตามเดือนปฏิทิน",S,"payday","n");
-            const xd=el("details");xd.open=!!(S.extra||S.deduct);xd.append(el("summary",null,"รายได้อื่นและรายการหักประจำ"));
-            const xg=el("div","set");fld(xg,"รายได้อื่นประจำต่อเดือน (เช่น ค่าล่วงเวลา)",S,"extra","n");fld(xg,"หักอื่นๆ ต่อเดือน (ภาษี ฌาปนกิจ ฯลฯ)",S,"deduct","n");xd.append(xg);g.append(xd);
-            const s=el("div","sub");s.innerHTML="<span>แบ่งเข้ากระปุกแล้ว</span><b class='"+(used>100?"neg":"")+"'>"+used+"% (เหลือ "+(100-used)+"%)</b>";
-            const ch=el("label","chk");const cb=el("input");cb.type="checkbox";cb.checked=!!S.auto;cb.onchange=()=>{S.auto=cb.checked;done()};ch.append(cb,"แบ่งให้อัตโนมัติทุกต้นเดือน");
-            const row=el("div","row2");row.append(ch,btn("v","แบ่งตอนนี้",()=>{run();done()}));
-            g.append(s,row);
-            if(S.last)g.append(el("div","sub","แบ่งล่าสุดเดือน "+S.last));
-            c.append(g);
-          }
-
-          function render(){
-            safe(salary);safe(sumPanel);safe(alertsPanel);safe(cfgPanel);safe(syncAlerts);safe(syncQuick);
-            const root=$("jars");root.innerHTML="";const jt=$("jtop");jt.innerHTML="";$("demob").hidden=!!(S.salary>0||S.jars.some(j=>j.tx.length));
-            if(!S.jars.length){
-              root.append(el("p","empty","🐷 ยังไม่มีกระปุก กด ➕ เพิ่มกระปุกใหม่ด้านล่าง"));
-            }
-            for(const j of S.jars){try{
-              const b=bal(j),c=el("section","card t-"+j.type),top=el("div","top");
-              if(j.type!=="d"&&!EXP[j.id]){
-                const cb=el("button","cbtn");cb.type="button";cb.setAttribute("aria-expanded","false");
-                cb.append(el("span","cn",(j.ic||EM[j.type])+" "+j.name),el("span","cv"+(b<0?" neg":""),fmt(b)+" ฿"),el("span","cc","›"));
-                cb.onclick=()=>{EXP[j.id]=true;render()};
-                c.className="card compact t-"+j.type;c.append(cb);(j.type==="d"?jt:root).append(c);continue;
-              }
-              top.append(el("span","name",(j.ic||EM[j.type])+" "+j.name),(()=>{const t=el("span","tag",TY[j.type]);if(j.name===TY[j.type])t.style.display="none";return t})());
-              if(j.type!=="d"){const cl=el("button","lnk","ย่อ ▲");cl.type="button";cl.setAttribute("aria-expanded","true");cl.onclick=()=>{EXP[j.id]=false;render()};top.append(cl)}
-              c.append(top,el("div","big "+(b<0?"neg":""),fmt(b)+" ฿"));
-              const line=(l,v)=>{const s=el("div","sub");s.append(el("span",null,l),el("b",null,v));c.append(s)};
-              const det=el("details");if(OPEN===j.id)det.open=true;
-              const set=el("div","set");
-              const inp=el("input");inp.type="text";inp.inputMode="decimal";inp.inputMode="decimal";inp.min="0";inp.setAttribute("aria-label","จำนวนเงิน "+j.name);
-              const q=el("div","q");let extra=null;
-              const go=s=>()=>{const a=pn(inp);if(!(a>0)){need(inp);return}add(j,s*a);done()};
-
-              if(j.type==="d"){
-                const net=cm(j).filter(t=>t.d===td()&&!isSys(t)).reduce((s,t)=>s+t.a,0);
-                const spent=-cm(j).filter(t=>t.d===td()&&t.a<0&&!isSys(t)).reduce((s,t)=>s+t.a,0);
-                const dl=Math.max(1,dd(td(),j.end||eom())+1),lim=(b-net)/dl,tl=lim+net;
-                if(j.rest&&!(S.salary>0))line("⚠️ ยังไม่ได้ใส่เงินเดือน","ใส่ที่การ์ดบนสุดก่อน");
-                const chip=el("div","chip");chip.append(el("span",null,"วันนี้ใช้ได้อีก"),el("b",tl<0?"neg":"pos",fmt(tl)+" ฿"));c.append(chip);
-                line("ใช้ได้วันละ (คงเหลือ ÷ "+dl+" วัน)",fmt(b/dl)+" ฿");
-                line("วันนี้ใช้ไป "+fmt(spent)+" · เหลือ",fmt(tl)+" ฿");
-                if(j.rest){const dim=dd(cs(curC()),cend())+1;line("ส่วนที่เหลือจากเงินเดือน",fmt(monthly(j))+" ฿ (เฉลี่ย "+fmt(monthly(j)/dim)+"/วัน)")}
-                const bar=el("div","bar"),i=el("i");i.style.width=(lim>0?Math.max(0,Math.min(100,tl/lim*100)):0)+"%";if(tl<0)i.style.background="var(--bad)";bar.append(i);c.append(bar);
-                {const cb=j.cb||{},ym2=curC();
-                 for(const k of Object.keys(cb).filter(x=>cb[x]>0)){
-                   const sp=-cm(j).filter(t=>t.a<0&&t.c===k).reduce((x,t)=>x+t.a,0);
-                   const spT=-cm(j).filter(t=>t.a<0&&t.c===k&&t.d===td()).reduce((x,t)=>x+t.a,0);
-                   const left=cb[k]-sp;
-                   if(MO.includes(k))line(k,left<0?"เกินงบ "+fmt(-left)+" ฿":"เหลือ "+fmt(left)+" ฿ (งบ "+fmt(cb[k])+")");
-                   else{const l2=(left+spT)/dl;line(k,left<0?"เกินงบ "+fmt(-left)+" ฿":"วันนี้เหลือ "+fmt(l2-spT)+" · วันละ "+fmt(left/dl)+" ฿")}
-                 }}
-                inp.placeholder="จำนวนเงิน";const cat=el("select");cat.setAttribute("aria-label","หมวดรายจ่าย");cat.style.marginTop="10px";
-                for(const x of ["",...cats()]){const o=el("option",null,x||"หมวดรายจ่าย (ไม่ระบุ)");o.value=x;cat.append(o)}
-                cat.value=LC;cat.onchange=()=>{LC=cat.value};
-                const dti=el("input");dti.type="date";dti.max=td();dti.value=DT||td();dti.setAttribute("aria-label","วันที่ของรายการ");dti.onchange=()=>{DT=dti.value&&dti.value!==td()?dti.value:""};
-                const crow=el("div");crow.style.cssText="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px";cat.style.marginTop="0";crow.append(cat,dti);c.append(crow);
-                const goD=sg=>()=>{const a=pn(inp);if(!(a>0)){need(inp);return}if(DT>td()){toast("เลือกวันที่ในอนาคตไม่ได้");return}add(j,sg*a,"",false,sg<0?LC:"");if(DT){j.tx[j.tx.length-1].d=DT;DT=""}done()};
-                q.append(inp,btn("m","− ใช้",goD(-1)),btn("p","+ เติม",goD(1)));
-                fld(set,"ใช้ให้หมดภายในวันที่",j,"end","date");
-                const lb=el("label","chk"),cb=el("input");cb.type="checkbox";cb.checked=!!j.rest;cb.onchange=()=>{OPEN=j.id;j.rest=cb.checked;done()};lb.append(cb,"ใช้ส่วนที่เหลือของเงินเดือนอัตโนมัติ");set.append(lb);
-                if(!j.rest)fld(set,"สัดส่วนจากเงินเดือน (%)",j,"pct","n");
-                const sl=el("label","chk"),sc=el("input");sc.type="checkbox";sc.checked=!!j.sweep;sc.onchange=()=>{OPEN=j.id;j.sweep=sc.checked;done()};sl.append(sc,"สิ้นเดือนโอนเงินที่เหลือไปกระปุก \"เงินเหลือ\"");set.append(sl);
-                const sw=el("button","lnk","โอนเงินที่เหลือตอนนี้");sw.type="button";sw.onclick=()=>{OPEN=j.id;sweep(j,curC());done()};set.append(sw);
-                j.cb=j.cb||{};
-                const cd=el("details");cd.open=CBO===j.id;cd.append(el("summary",null,"งบแยกตามหมวดต่อเดือน (บาท)"));
-                const cg=el("div","set");cg.addEventListener("focusin",()=>{OPEN=j.id;CBO=j.id});
-                for(const k of cats())fld(cg,k,j.cb,k,"n");
-                const ab=el("button","lnk","✨ แบ่งงบที่เหลือจากค่ารายเดือนให้หมวดอื่นอัตโนมัติ");ab.type="button";
-                ab.onclick=()=>{OPEN=j.id;CBO=j.id;const ms=-cm(j).filter(t=>t.a<0&&!isSys(t)).reduce((x,t)=>x+t.a,0);
-                  const base=j.rest?monthly(j):Math.max(0,bal(j)+ms),fixed=MO.reduce((x,k)=>x+(j.cb[k]||0),0),rest=Math.max(0,base-fixed);
-                  const w={"ค่าอาหาร":45,"ค่าน้ำ":5,"ค่าช้อปปิ้ง":15,"ค่าเดินทาง":20,"อื่นๆ":15};
-                  for(const k in w)j.cb[k]=Math.round(rest*w[k]/100);done()};
-                cg.append(ab);cd.append(cg);set.append(cd);
-                const rd=el("details");rd.open=RCO===j.id;rd.append(el("summary",null,"🔁 รายการประจำ (ตัดทุกรอบเงินเดือน)"));
-                const rg=el("div","set");rg.addEventListener("focusin",()=>{OPEN=j.id;RCO=j.id});
-                const rl=el("ul");
-                for(const r of j.rec||[]){const li=el("li");li.append(el("span","n",r.n+(r.c?" · "+r.c:"")),el("b","neg",fmt(r.a)+" ฿"));const rx=el("button",null,"×");rx.type="button";rx.onclick=()=>{OPEN=j.id;RCO=j.id;j.rec=j.rec.filter(y=>y!==r);done()};li.append(rx);rl.append(li)}
-                const rn=el("input");rn.placeholder="ชื่อรายการ เช่น ค่าโทรศัพท์";
-                const ra=el("input");ra.type="text";ra.inputMode="decimal";ra.placeholder="จำนวนเงินต่อรอบ (บาท)";
-                const rc=el("select");for(const x of ["",...cats()]){const o=el("option",null,x||"หมวด (ไม่ระบุ)");o.value=x;rc.append(o)}
-                rg.append(rl,rn,ra,rc,btn("p","เพิ่มรายการประจำ (เริ่มรอบถัดไป)",()=>{
-                  const a=pn(ra),n=rn.value.trim();
-                  if(!n){rn.classList.add("err");toast(FILLMSG);return}
-                  if(!(a>0)){need(ra);return}
-                  (j.rec=j.rec||[]).push({id:Date.now(),n,a,c:rc.value,last:curC()});OPEN=j.id;RCO=j.id;done()}));
-                rd.append(rg);set.append(rd);
-              }
-              if(j.type==="i"){
-                const dl=j.due?dd(td(),j.due):null,sa=(j.premium||0)/(j.cyc==="y"?12:1);
-                line("เบี้ย "+fmt(j.premium||0)+" ฿/"+(j.cyc==="y"?"ปี":"เดือน"),dl==null?"ยังไม่ตั้งวัน":dl<0?"เลยกำหนด "+(-dl)+" วัน":"อีก "+dl+" วัน");
-                line("ควรกันไว้เดือนละ",fmt(sa)+" ฿");
-                if(j.cover)line("ทุนประกัน",fmt(j.cover)+" ฿");
-                inp.placeholder="จำนวนเงิน";q.append(inp,btn("m","− ใช้",go(-1)),btn("p","+ เติม",go(1)));
-                c.append(q);
-                const pay=btn("v","จ่ายเบี้ยงวดนี้",()=>{add(j,-(j.premium||0),"จ่ายเบี้ย");if(j.due){const d=new Date(j.due);j.cyc==="y"?d.setFullYear(d.getFullYear()+1):d.setMonth(d.getMonth()+1);j.due=ymd(d)}done()});
-                pay.style.marginTop="8px";pay.style.width="100%";c.append(pay);
-                fld(set,"เบี้ยต่องวด (บาท)",j,"premium","n");fld(set,"รอบจ่าย",j,"cyc","s",[["m","รายเดือน"],["y","รายปี"]]);
-                fld(set,"ครบกำหนดจ่ายวันที่",j,"due","date");fld(set,"ทุนประกัน/มูลค่าเงินคืน (กรอกเอง)",j,"cover","n");
-                fld(set,"สัดส่วนจากเงินเดือน (%)",j,"pct","n");
-              }
-              if(j.type==="k"){
-                const u=units(j),cost=agg(j).cost,pl=b-cost;
-                line("ลงทุนสะสม (ต้นทุน)",fmt(cost)+" ฿");
-                const g=el("div","sub");g.append(el("span",null,"กำไร/ขาดทุน"),el("b",pl<0?"neg":"pos",(pl<0?"−":"+")+fmt(Math.abs(pl))+" ฿"+(cost>0?" ("+(pl/cost*100).toFixed(1)+"%)":"")));c.append(g);
-                if(u>0)line("ถือ "+px(u)+" หน่วย · ต้นทุนเฉลี่ย",px(cost/u)+" ฿");
-                const when=j.pt?" · "+new Date(j.pt).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"}):"";
-                line(j.sym?"ราคา "+j.sym:"ราคาต่อหน่วย",j.price>0?px(j.price)+" ฿"+when:j.perr?"ดึงราคาไม่ได้":j.sym&&!hasA()?"ดึงได้เฉพาะในแอป":"ยังไม่มีราคา");
-                line("DCA เดือนละ",fmt(monthly(j))+" ฿");
-                line("ประมาณการอีก "+(j.yrs||0)+" ปี ที่ "+(j.rate||0)+"%/ปี",fmt(proj(b,monthly(j),j.rate,j.yrs))+" ฿");
-                {
-                  const mb=el("details");mb.open=MB===j.id;mb.style.marginTop="12px";mb.append(el("summary",null,"✍️ บันทึกซื้อ/ขาย/ราคาเอง"));
-                  const mg=el("div","set");mg.addEventListener("focusin",()=>{OPEN=j.id;MB=j.id});
-                  const sel=el("select");for(const [v,t] of [["b","ซื้อ"],["s","ขาย"]]){const o=el("option",null,t);o.value=v;sel.append(o)}
-                  mg.append(el("label",null,"ประเภทรายการ"),sel);
-                  const mk=(l,t,ph)=>{mg.append(el("label",null,l));const i=el("input");i.type=t==="number"?"text":t;if(t==="number"){i.inputMode="decimal";i.min="0";i.step="any"}if(ph)i.placeholder=ph;mg.append(i);return i};
-                  const fd=mk("วันที่","date");fd.value=td();
-                  const fa=mk("จำนวนเงิน (บาท)","number"),fp=mk("ราคาต่อหน่วย (บาท)","number"),fu=mk("จำนวนหน่วย","number","ใส่ 2 ใน 3 ช่อง อีกช่องคำนวณให้");
-                  const msg=el("div","sub");
-                  const ok=btn("p","บันทึกรายการ",()=>{
-                    let a=pn(fa),pr=pn(fp),un=pn(fu);if([fa,fp,fu].some(e=>e._why==="bad"))return;
-                    const h=x=>x>0;
-                    if(h(a)&&h(pr)&&!h(un))un=a/pr;else if(h(a)&&h(un)&&!h(pr))pr=a/un;else if(h(pr)&&h(un)&&!h(a))a=pr*un;
-                    const d=fd.value||td();
-                    if(sel.value==="b"){
-                      if(!h(a)){msg.textContent=FILLMSG;toast(FILLMSG);return}
-                      j.tx.push({id:Date.now()+Math.random(),a,d,n:"ซื้อเอง"+(h(pr)?" @"+px(pr):""),u:h(un)?un:0,c:"",k:""});
-                    }else{
-                      if(!h(un)&&h(a)&&j.price>0)un=a/j.price;
-                      if(!h(un)||un>u+1e-9){msg.textContent="ใส่จำนวนหน่วยที่ขาย (ถืออยู่ "+px(u)+")";toast(msg.textContent);return}
-                      j.tx.push({id:Date.now()+Math.random(),a:-(u>0?cost/u*un:0),d,n:"ขาย "+px(un)+" หน่วย"+(h(pr)?" @"+px(pr):"")+(h(a)?" ได้ "+px(a):""),u:-un,c:"",k:""});
-                    }
-                    MB=j.id;OPEN=j.id;done()});
-                  mg.append(ok,msg);
-                  mg.append(el("label",null,"อัปเดตราคาปัจจุบันต่อหน่วย (บาท)"));
-                  const np=el("input");np.type="text";np.inputMode="decimal";np.inputMode="decimal";np.step="any";np.placeholder=j.price>0?px(j.price):"";mg.append(np);
-                  mg.append(btn("v","อัปเดตราคา (ใช้ราคาที่กรอกเอง)",()=>{const x=pn(np);if(!(x>0)){need(np);return}j.price=x;j.pt=Date.now();j.mp=true;MB=j.id;OPEN=j.id;done()}));
-                  mb.append(mg);extra=mb;
-                }
-                inp.placeholder="จำนวนเงินที่ซื้อ (บาท)";
-                q.append(inp,btn("p","+ ซื้อ",()=>{
-                  const a=pn(inp);if(!(a>0)){need(inp);return}
-                  if(j.price>0)j.tx.push({id:Date.now()+Math.random(),a,d:td(),n:"ซื้อ @"+px(j.price),u:a/j.price});
-                  else if(j.sym){OPEN=j.id;inp.value="";inp.placeholder="ยังไม่มีราคา ดูในตั้งค่า";det.open=true;return}
-                  else add(j,a,"ลงทุน");
-                  done()}));
-                q.append(j.sym?btn("v","รีเฟรช",refresh):btn("v","อัปเดตมูลค่า",()=>{const a=pn(inp);if(!(a>=0)){need(inp);return}add(j,a-b,"ปรับเป็นมูลค่าตลาด",true);done()}));
-                fld(set,"สัญลักษณ์หุ้น (เช่น PTT.BK, AAPL, SPY)",j,"sym","t");
-                fld(set,"ราคาต่อหน่วย (กรอกเองถ้าไม่ดึงอัตโนมัติ)",j,"price","n");
-                {const l=el("label","chk"),c2=el("input");c2.type="checkbox";c2.checked=!!j.mp;c2.onchange=()=>{OPEN=j.id;j.mp=c2.checked;done()};l.append(c2,"ใช้ราคาที่กรอกเอง (ไม่ดึงอัตโนมัติ)");set.append(l)}
-                fld(set,"DCA ต่อเดือน (บาท)",j,"mon","n");fld(set,"ผลตอบแทนคาดการณ์ (%/ปี)",j,"rate","n");fld(set,"ประมาณการอีกกี่ปี",j,"yrs","n");
-              }
-              if(j.type==="c"){
-                const m=monthly(j),goal=j.goal||0,yrs=j.yrs||0;
-                line("ฝากเดือนละ",fmt(m)+" ฿");
-                if(goal>0){
-                  const bar=el("div","bar"),i=el("i");i.style.width=Math.max(0,Math.min(100,b/goal*100))+"%";bar.append(i);
-                  line("เป้าหมาย "+fmt(goal)+" ฿",(b/goal*100).toFixed(0)+"%");c.append(bar);
-                  const r=(j.rate||0)/1200,n=yrs*12,g=Math.pow(1+r,n);
-                  line("อีก "+yrs+" ปี ที่ "+(j.rate||0)+"%/ปี คาดว่าได้",fmt(proj(b,m,j.rate,yrs))+" ฿");
-                  if(n>0)line("ต้องฝากเดือนละเท่าไรถึงเป้า",fmt(Math.max(0,r?(goal-b*g)*r/(g-1):(goal-b)/n))+" ฿");
-                }else line("ประมาณการอีก "+yrs+" ปี",fmt(proj(b,m,j.rate,yrs))+" ฿");
-                inp.placeholder="จำนวนเงิน";q.append(inp,btn("m","− ถอน",go(-1)),btn("p","+ ฝาก",go(1)));
-                fld(set,"ฝากต่อเดือน (บาท)",j,"mon","n");fld(set,"เป้าหมาย เช่น ค่าเทอม (บาท)",j,"goal","n");
-                fld(set,"ถึงเป้าหมายในอีกกี่ปี",j,"yrs","n");fld(set,"ผลตอบแทนคาดการณ์ (%/ปี)",j,"rate","n");
-              }
-              if(j.type==="f"){
-                const bp=bk(j,"p"),bs=bk(j,"s"),yr=j.yrs||0,pm=S.salary*((j.emp||0)+(j.er||0))/100;
-                line("🏦 PVD",fmt(bp)+" ฿");
-                line("🤝 ออมทรัพย์/สหกรณ์",fmt(bs)+" ฿");
-                line("สมทบ PVD เดือนละ",fmt(pm)+" ฿ (เรา "+fmt(S.salary*(j.emp||0)/100)+" + นายจ้าง "+fmt(S.salary*(j.er||0)/100)+")");
-                line("ส่งหุ้นสหกรณ์เดือนละ",fmt(j.mon||0)+" ฿");
-                line("อีก "+yr+" ปี คาดว่า PVD / ออมทรัพย์",fmt(proj(bp,pm,j.prate,yr))+" / "+fmt(proj(bs,j.mon||0,j.srate,yr))+" ฿");
-                const ir=el("div","q one");ir.style.cssText="grid-template-columns:1fr 1fr;margin-top:12px";
-                ir.append(btn("v","📄 นำเข้าจาก PDF",()=>pickPdf(j)),btn("v","✍️ กรอกจากสลิป",()=>{IMP={jid:j.id,file:"กรอกจากสลิ
+          mkdir -p proj
+          base64 -d > proj/src.tgz <<'B64_END'
+          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
+          /jp/nb/OX+evJ339f/AVNc0A4AEA
+          B64_END
+          cd proj && tar xzf src.tgz && rm src.tgz
+          test -f app/src/main/assets/index.html && test -f app/src/main/java/com/example/jars/QuickActivity.kt && echo "source files OK"
+      - name: Build
+        run: cd proj && gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jars-apk
+          path: proj/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
